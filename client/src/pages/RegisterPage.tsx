@@ -1,0 +1,85 @@
+import { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { useAuth } from '../hooks/useAuth';
+
+export function RegisterPage() {
+  const { register } = useAuth();
+  const [form, setForm] = useState({ orgName: '', name: '', email: '', password: '' });
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      await register(form.orgName, form.email, form.password, form.name);
+    } catch (err: any) {
+      setError(err.message || 'Registration failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const update = (field: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm((f) => ({ ...f, [field]: e.target.value }));
+
+  return (
+    <div className="min-h-screen flex bg-white">
+      {/* Left — Branding */}
+      <div className="hidden lg:flex lg:w-1/2 bg-gray-950 items-center justify-center p-12">
+        <div className="max-w-md">
+          <div className="flex items-center gap-3 mb-8">
+            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center">
+              <span className="text-white font-black text-lg">T</span>
+            </div>
+            <div>
+              <div className="text-white font-bold text-xl tracking-tight">Techview</div>
+              <div className="text-gray-500 text-xs uppercase tracking-widest">CRM</div>
+            </div>
+          </div>
+          <h2 className="text-3xl font-bold text-white leading-tight">Get started in minutes</h2>
+          <p className="text-gray-400 mt-4 leading-relaxed">
+            Create your organization, invite your team, and start managing support tickets, CRM, and AI chatbots.
+          </p>
+        </div>
+      </div>
+
+      {/* Right — Form */}
+      <div className="flex-1 flex items-center justify-center p-8">
+        <div className="w-full max-w-sm">
+          <h1 className="text-2xl font-bold text-gray-900">Create account</h1>
+          <p className="text-gray-500 text-sm mt-1">Set up your organization</p>
+
+          <form onSubmit={handleSubmit} className="mt-8 space-y-4">
+            {error && <div className="bg-red-50 text-red-700 px-4 py-2.5 rounded-lg text-sm border border-red-200">{error}</div>}
+            <div>
+              <label className="block text-sm font-medium text-gray-900 mb-1.5">Organization Name</label>
+              <input value={form.orgName} onChange={update('orgName')} className="input-field" required />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-900 mb-1.5">Your Name</label>
+              <input value={form.name} onChange={update('name')} className="input-field" required />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-900 mb-1.5">Email</label>
+              <input type="email" value={form.email} onChange={update('email')} className="input-field" required />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-900 mb-1.5">Password</label>
+              <input type="password" value={form.password} onChange={update('password')} className="input-field" required minLength={8} />
+            </div>
+            <button type="submit" disabled={loading} className="btn-primary w-full">
+              {loading ? 'Creating...' : 'Create Account'}
+            </button>
+          </form>
+
+          <p className="text-center text-sm text-gray-500 mt-6">
+            Already have an account?{' '}
+            <Link to="/login" className="text-blue-600 hover:underline font-medium">Sign in</Link>
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}

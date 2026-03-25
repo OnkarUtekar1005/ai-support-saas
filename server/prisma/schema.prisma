@@ -1,0 +1,684 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Multi-Tenant Organization ───
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  plan      Plan     @default(FREE)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users            User[]
+  tickets          Ticket[]
+  systemConfigs    SystemConfig[]
+  dbConnections    DatabaseConnection[]
+  errorLogs        ErrorLog[]
+  knowledgeEntries KnowledgeEntry[]
+  emailSettings    EmailSettings?
+
+  // CRM
+  projects         Project[]
+  contacts         Contact[]
+  companies        Company[]
+  deals            Deal[]
+  activities       Activity[]
+
+  // Integrations
+  apiKeys          ApiKey[]
+  sdkEvents        SdkEvent[]
+
+  // Auto-Fix Pipeline
+  pipelines        Pipeline[]
+  vpsAgents        VpsAgent[]
+}
+
+enum Plan {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
+// ─── Users & Auth ───
+model User {
+  id             String   @id @default(uuid())
+  email          String   @unique
+  passwordHash   String
+  name           String
+  role           Role     @default(AGENT)
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  tickets      Ticket[]
+  chatSessions ChatSession[]
+
+  // CRM
+  ownedDeals       Deal[]       @relation("dealOwner")
+  assignedActivities Activity[] @relation("activityAssignee")
+  createdActivities  Activity[] @relation("activityCreator")
+  projectMembers   ProjectMember[]
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  AGENT
+  VIEWER
+}
+
+// ─── Support Tickets ───
+model Ticket {
+  id             String       @id @default(uuid())
+  title          String
+  description    String       @db.Text
+  status         TicketStatus @default(OPEN)
+  priority       Priority     @default(MEDIUM)
+  issueType      String?
+  confidence     Float?
+  analysis       Json?
+  resolution     String?      @db.Text
+  projectId      String?
+  organizationId String
+  createdById    String
+  contactId      String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User          @relation(fields: [createdById], references: [id])
+  project      Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  contact      Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  chatSessions ChatSession[]
+  attachments  Attachment[]
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_CLARIFICATION
+  RESOLVED
+  CLOSED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+// ─── Chat Sessions ───
+model ChatSession {
+  id        String   @id @default(uuid())
+  ticketId  String?
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ticket   Ticket?       @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+  user     User          @relation(fields: [userId], references: [id])
+  messages ChatMessage[]
+}
+
+model ChatMessage {
+  id            String   @id @default(uuid())
+  chatSessionId String
+  role          String   // 'user' | 'assistant' | 'system'
+  content       String   @db.Text
+  metadata      Json?
+  createdAt     DateTime @default(now())
+
+  chatSession ChatSession @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
+}
+
+// ─── Attachments ───
+model Attachment {
+  id        String   @id @default(uuid())
+  ticketId  String
+  fileName  String
+  fileType  String
+  filePath  String
+  fileSize  Int
+  parsed    String?  @db.Text
+  createdAt DateTime @default(now())
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+}
+
+// ─── Database Connections (per org) ───
+model DatabaseConnection {
+  id             String   @id @default(uuid())
+  name           String
+  host           String
+  port           Int      @default(1433)
+  database       String
+  username       String
+  passwordEnc    String   // encrypted
+  dbType         String   @default("mssql")
+  isActive       Boolean  @default(true)
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// ─── System Configurations ───
+model SystemConfig {
+  id             String   @id @default(uuid())
+  name           String
+  description    String?
+  config         Json     // Full SystemConfig JSON
+  isDefault      Boolean  @default(false)
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// ─── Knowledge Base (RAG) ───
+model KnowledgeEntry {
+  id             String   @id @default(uuid())
+  title          String
+  content        String   @db.Text
+  category       String?
+  embedding      Float[]  // vector embedding
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// ─── Error Logs (with Gemini Analysis) ───
+model ErrorLog {
+  id              String        @id @default(uuid())
+  level           ErrorLevel
+  message         String        @db.Text
+  stack           String?       @db.Text
+  source          String        // module/service name
+  category        String?       // database, api, auth, cors, timeout, code, network, email, memory, frontend, disk, validation
+  endpoint        String?       // API endpoint if applicable
+  userId          String?       // user who triggered it
+  projectId       String?       // linked project/system
+  requestData     Json?         // sanitized request data
+  aiAnalysis      String?       @db.Text  // Gemini's root cause analysis
+  aiSuggestion    String?       @db.Text  // Gemini's fix suggestion
+  analyzed        Boolean       @default(false)
+  emailSent       Boolean       @default(false)
+  organizationId  String
+  createdAt       DateTime      @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project      Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([level])
+  @@index([analyzed])
+  @@index([projectId])
+  @@index([category])
+}
+
+enum ErrorLevel {
+  INFO
+  WARN
+  ERROR
+  FATAL
+}
+
+// ─── Email Settings (per org) ───
+model EmailSettings {
+  id             String   @id @default(uuid())
+  smtpHost       String
+  smtpPort       Int      @default(587)
+  smtpUser       String
+  smtpPassEnc    String   // encrypted
+  adminEmails    String[] // list of admin emails to notify
+  notifyOnError  Boolean  @default(true)
+  notifyOnFatal  Boolean  @default(true)
+  digestEnabled  Boolean  @default(false)
+  digestCron     String?  @default("0 9 * * *") // daily at 9am
+  organizationId String   @unique
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// ═══════════════════════════════════════════
+// ─── CRM MODULE ───
+// ═══════════════════════════════════════════
+
+// ─── Projects (multi-project support) ───
+model Project {
+  id             String        @id @default(uuid())
+  name           String
+  description    String?       @db.Text
+  status         ProjectStatus @default(ACTIVE)
+  color          String        @default("#3b82f6")
+  organizationId String
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  members      ProjectMember[]
+  contacts     Contact[]
+  companies    Company[]
+  deals        Deal[]
+  activities   Activity[]
+  tickets      Ticket[]
+  apiKeys      ApiKey[]
+  chatbotConfig ChatbotConfig?
+  errorLogs    ErrorLog[]
+  pipelines    Pipeline[]
+  vpsAgents    VpsAgent[]
+
+  @@index([organizationId])
+}
+
+enum ProjectStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ARCHIVED
+}
+
+// ─── Project Members ───
+model ProjectMember {
+  id        String            @id @default(uuid())
+  projectId String
+  userId    String
+  role      ProjectMemberRole @default(MEMBER)
+  createdAt DateTime          @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+}
+
+enum ProjectMemberRole {
+  OWNER
+  MANAGER
+  MEMBER
+}
+
+// ─── Companies / Accounts ───
+model Company {
+  id             String   @id @default(uuid())
+  name           String
+  domain         String?
+  industry       String?
+  size           String?
+  phone          String?
+  address        String?  @db.Text
+  notes          String?  @db.Text
+  projectId      String?
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project      Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  contacts     Contact[]
+  deals        Deal[]
+  activities   Activity[]
+
+  @@index([organizationId])
+  @@index([projectId])
+}
+
+// ─── Contacts ───
+model Contact {
+  id             String        @id @default(uuid())
+  firstName      String
+  lastName       String
+  email          String?
+  phone          String?
+  jobTitle       String?
+  status         ContactStatus @default(ACTIVE)
+  source         String?
+  notes          String?       @db.Text
+  companyId      String?
+  projectId      String?
+  organizationId String
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  company      Company?     @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  project      Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  deals        Deal[]
+  activities   Activity[]
+  tickets      Ticket[]
+
+  @@index([organizationId])
+  @@index([projectId])
+  @@index([companyId])
+}
+
+enum ContactStatus {
+  ACTIVE
+  INACTIVE
+  LEAD
+  CUSTOMER
+  CHURNED
+}
+
+// ─── Deals / Opportunities ───
+model Deal {
+  id             String    @id @default(uuid())
+  title          String
+  value          Float     @default(0)
+  currency       String    @default("USD")
+  stage          DealStage @default(LEAD)
+  probability    Int       @default(0)
+  expectedClose  DateTime?
+  closedAt       DateTime?
+  notes          String?   @db.Text
+  contactId      String?
+  companyId      String?
+  ownerId        String?
+  projectId      String?
+  organizationId String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contact      Contact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  company      Company?     @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  owner        User?        @relation("dealOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  project      Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  activities   Activity[]
+
+  @@index([organizationId])
+  @@index([projectId])
+  @@index([stage])
+}
+
+enum DealStage {
+  LEAD
+  QUALIFIED
+  PROPOSAL
+  NEGOTIATION
+  CLOSED_WON
+  CLOSED_LOST
+}
+
+// ─── Activities / Tasks ───
+model Activity {
+  id             String         @id @default(uuid())
+  type           ActivityType
+  subject        String
+  description    String?        @db.Text
+  status         ActivityStatus @default(TODO)
+  dueDate        DateTime?
+  completedAt    DateTime?
+  contactId      String?
+  companyId      String?
+  dealId         String?
+  assigneeId     String?
+  createdById    String
+  projectId      String?
+  organizationId String
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contact      Contact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  company      Company?     @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  deal         Deal?        @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  assignee     User?        @relation("activityAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  createdBy    User         @relation("activityCreator", fields: [createdById], references: [id])
+  project      Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([projectId])
+  @@index([assigneeId])
+  @@index([dueDate])
+}
+
+enum ActivityType {
+  CALL
+  EMAIL
+  MEETING
+  TASK
+  NOTE
+  FOLLOW_UP
+}
+
+enum ActivityStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+// ═══════════════════════════════════════════
+// ─── INTEGRATIONS / SDK ───
+// ═══════════════════════════════════════════
+
+// ─── API Keys (for external app connections) ───
+model ApiKey {
+  id             String    @id @default(uuid())
+  name           String    // "Production Website", "Mobile App iOS", etc.
+  key            String    @unique // sk_live_xxxx or sk_test_xxxx
+  platform       String    @default("web") // web, ios, android, server
+  projectId      String?   // scope to a specific project (optional)
+  isActive       Boolean   @default(true)
+  lastUsedAt     DateTime?
+  usageCount     Int       @default(0)
+  allowedOrigins String[]  // CORS: ["https://myapp.com", "http://localhost:3000"]
+  permissions    String[]  // ["contacts", "tickets", "errors", "events"]
+  organizationId String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project      Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  sdkEvents    SdkEvent[]
+
+  @@index([key])
+  @@index([organizationId])
+}
+
+// ─── SDK Events (tracked from external apps) ───
+model SdkEvent {
+  id             String   @id @default(uuid())
+  type           String   // "page_view", "error", "contact.identify", "ticket.create", "custom"
+  name           String?  // custom event name
+  data           Json?    // event payload
+  sessionId      String?  // browser/app session
+  userId         String?  // external user ID from the app
+  userEmail      String?  // external user email
+  userAgent      String?
+  ipAddress      String?
+  pageUrl        String?
+  apiKeyId       String
+  organizationId String
+  createdAt      DateTime @default(now())
+
+  apiKey       ApiKey       @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@index([apiKeyId])
+  @@index([type])
+  @@index([userEmail])
+}
+
+// ═══════════════════════════════════════════
+// ─── EMBEDDABLE CHATBOT ───
+// ═══════════════════════════════════════════
+
+// ─── Chatbot Configuration (per project, managed by admin) ───
+model ChatbotConfig {
+  id               String   @id @default(uuid())
+  projectId        String   @unique
+  botName          String   @default("AI Support")
+  welcomeMessage   String   @default("Hi! How can I help you today?")
+  systemPrompt     String   @db.Text // The AI personality/instructions
+  placeholderText  String   @default("Type your message...")
+  // Theme
+  primaryColor     String   @default("#3b82f6")
+  position         String   @default("bottom-right") // bottom-right, bottom-left
+  avatarUrl        String?
+  // Features
+  enableChat       Boolean  @default(true)
+  enableTickets    Boolean  @default(true)
+  enableFileUpload Boolean  @default(false)
+  // Behavior
+  requireEmail     Boolean  @default(false) // ask for email before chat
+  autoReply        Boolean  @default(true)  // AI auto-responds
+  offlineMessage   String?  @default("We're offline right now. Leave a message and we'll get back to you.")
+  // Context
+  knowledgeContext String?  @db.Text // extra context fed to AI (FAQs, product info)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  widgetSessions WidgetSession[]
+}
+
+// ─── Widget Chat Sessions (end-user conversations) ───
+model WidgetSession {
+  id              String   @id @default(uuid())
+  chatbotConfigId String
+  visitorEmail    String?
+  visitorName     String?
+  visitorId       String?  // browser fingerprint / cookie ID
+  userAgent       String?
+  ipAddress       String?
+  pageUrl         String?
+  status          String   @default("active") // active, closed, archived
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  chatbotConfig ChatbotConfig  @relation(fields: [chatbotConfigId], references: [id], onDelete: Cascade)
+  messages      WidgetMessage[]
+
+  @@index([chatbotConfigId])
+  @@index([visitorEmail])
+}
+
+// ─── Widget Messages ───
+model WidgetMessage {
+  id              String   @id @default(uuid())
+  widgetSessionId String
+  role            String   // 'user' | 'assistant' | 'system'
+  content         String   @db.Text
+  createdAt       DateTime @default(now())
+
+  widgetSession WidgetSession @relation(fields: [widgetSessionId], references: [id], onDelete: Cascade)
+}
+
+// ═══════════════════════════════════════════
+// ─── AUTO-FIX PIPELINE ───
+// ═══════════════════════════════════════════
+
+// ─── VPS Agent (registered VPS instances) ───
+model VpsAgent {
+  id               String   @id @default(uuid())
+  name             String   // "Production Server", "Staging Server"
+  host             String   // hostname or IP
+  agentKey         String   @unique // secret key for agent auth
+  projectPath      String   // /home/deploy/myapp — where code lives on VPS
+  gitBranch        String   @default("main") // default branch
+  buildCommand     String   @default("npm run build")
+  restartCommand   String   @default("pm2 restart all")
+  isOnline         Boolean  @default(false)
+  lastHeartbeat    DateTime?
+  projectId        String?  // linked project
+  organizationId   String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project      Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  pipelines    Pipeline[]
+
+  @@index([organizationId])
+  @@index([agentKey])
+}
+
+// ─── Pipeline (auto-fix workflow) ───
+model Pipeline {
+  id               String         @id @default(uuid())
+  status           PipelineStatus @default(DETECTED)
+  // Source
+  errorLogId       String?        // the error that triggered this
+  errorMessage     String         @db.Text
+  errorSource      String
+  errorStack       String?        @db.Text
+  // Gemini analysis
+  geminiAnalysis   String?        @db.Text
+  geminiSuggestion String?        @db.Text
+  // Claude Code
+  claudePrompt     String?        @db.Text  // prompt sent to claude CLI
+  claudeOutput     String?        @db.Text  // full claude CLI output
+  claudeFixSummary String?        @db.Text  // summary of what claude changed
+  filesChanged     String[]       // list of files modified
+  // Git
+  branchName       String?        // fix/error-abc123
+  commitHash       String?
+  prUrl            String?        // pull request URL if created
+  // Deploy
+  deployLog        String?        @db.Text
+  deployedAt       DateTime?
+  // Approval
+  approvedBy       String?        // user ID who approved
+  approvedAt       DateTime?
+  rejectedReason   String?
+  // Links
+  vpsAgentId       String?
+  projectId        String?
+  organizationId   String
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project      Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  vpsAgent     VpsAgent?    @relation(fields: [vpsAgentId], references: [id], onDelete: SetNull)
+  logs         PipelineLog[]
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([projectId])
+}
+
+enum PipelineStatus {
+  DETECTED
+  ANALYZING
+  FIX_PROPOSED
+  AWAITING_APPROVAL
+  APPROVED
+  FIXING
+  TESTING
+  COMMITTED
+  DEPLOYING
+  DEPLOYED
+  FAILED
+  REJECTED
+}
+
+// ─── Pipeline Activity Log ───
+model PipelineLog {
+  id         String   @id @default(uuid())
+  pipelineId String
+  stage      String
+  message    String   @db.Text
+  data       Json?
+  createdAt  DateTime @default(now())
+
+  pipeline Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+}

@@ -1,0 +1,68 @@
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { useAuth } from './hooks/useAuth';
+import { AppLayout } from './components/layout/AppLayout';
+import { LoginPage } from './pages/LoginPage';
+import { RegisterPage } from './pages/RegisterPage';
+import { DashboardPage } from './pages/DashboardPage';
+import { TicketsPage } from './pages/TicketsPage';
+import { TicketDetailPage } from './pages/TicketDetailPage';
+import { ChatPage } from './pages/ChatPage';
+import { ErrorLogsPage } from './pages/ErrorLogsPage';
+import { SettingsPage } from './pages/SettingsPage';
+import { ProjectsPage } from './pages/ProjectsPage';
+import { ProjectDetailPage } from './pages/ProjectDetailPage';
+import { ContactsPage } from './pages/ContactsPage';
+import { CompaniesPage } from './pages/CompaniesPage';
+import { DealsPage } from './pages/DealsPage';
+import { ActivitiesPage } from './pages/ActivitiesPage';
+import { IntegrationsPage } from './pages/IntegrationsPage';
+import { ChatbotConfigPage } from './pages/ChatbotConfigPage';
+import { DatabasesPage } from './pages/DatabasesPage';
+import { PipelinePage } from './pages/PipelinePage';
+
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+  if (loading) return <div className="flex items-center justify-center h-screen">Loading...</div>;
+  if (!user) return <Navigate to="/login" />;
+  return <>{children}</>;
+}
+
+export function App() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+      </div>
+    );
+  }
+
+  return (
+    <Routes>
+      <Route path="/login" element={user ? <Navigate to="/" /> : <LoginPage />} />
+      <Route path="/register" element={user ? <Navigate to="/" /> : <RegisterPage />} />
+      <Route path="/" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
+        <Route index element={<DashboardPage />} />
+        {/* Support */}
+        <Route path="tickets" element={<TicketsPage />} />
+        <Route path="tickets/:id" element={<TicketDetailPage />} />
+        <Route path="chat" element={<ChatPage />} />
+        {/* CRM */}
+        <Route path="projects" element={<ProjectsPage />} />
+        <Route path="projects/:id" element={<ProjectDetailPage />} />
+        <Route path="contacts" element={<ContactsPage />} />
+        <Route path="companies" element={<CompaniesPage />} />
+        <Route path="deals" element={<DealsPage />} />
+        <Route path="activities" element={<ActivitiesPage />} />
+        {/* Admin */}
+        <Route path="chatbot" element={<ChatbotConfigPage />} />
+        <Route path="integrations" element={<IntegrationsPage />} />
+        <Route path="db-connect" element={<DatabasesPage />} />
+        <Route path="pipeline" element={<PipelinePage />} />
+        <Route path="error-logs" element={<ErrorLogsPage />} />
+        <Route path="settings" element={<SettingsPage />} />
+      </Route>
+    </Routes>
+  );
+}

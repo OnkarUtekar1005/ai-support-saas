@@ -1,0 +1,11 @@
+{
+  "name": "techview-vps-agent",
+  "version": "1.0.0",
+  "description": "CRM of Techview — VPS Agent for Auto-Fix Pipeline",
+  "main": "agent.js",
+  "scripts": {
+    "start": "node agent.js",
+    "dev": "node --watch agent.js"
+  },
+  "dependencies": {}
+}

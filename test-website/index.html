@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MyApp — CRM of Techview Test</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8fafc; color: #1e293b; }
+    nav { background: white; border-bottom: 1px solid #e2e8f0; padding: 14px 32px; display: flex; align-items: center; justify-content: space-between; }
+    nav .logo { font-size: 18px; font-weight: 700; color: #0f172a; }
+    nav .logo span { color: #3b82f6; }
+    nav .links { display: flex; gap: 20px; }
+    nav .links a { text-decoration: none; color: #64748b; font-size: 13px; font-weight: 500; }
+    .container { max-width: 900px; margin: 0 auto; padding: 32px 20px; }
+    h1 { font-size: 28px; font-weight: 800; color: #0f172a; margin-bottom: 8px; }
+    h1 span { color: #3b82f6; }
+    .subtitle { font-size: 15px; color: #64748b; margin-bottom: 32px; }
+    h2 { font-size: 18px; font-weight: 700; color: #0f172a; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+    h2 .num { background: #3b82f6; color: white; width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; }
+    .card { background: white; border: 1px solid #e2e8f0; border-radius: 10px; padding: 20px; margin-bottom: 16px; }
+    .card p { font-size: 13px; color: #64748b; line-height: 1.6; margin-bottom: 12px; }
+    .btn { border: none; padding: 9px 18px; border-radius: 7px; cursor: pointer; font-size: 13px; font-weight: 600; transition: all 0.15s; display: inline-flex; align-items: center; gap: 6px; }
+    .btn:active { transform: scale(0.97); }
+    .btn-red { background: #ef4444; color: white; }
+    .btn-red:hover { background: #dc2626; }
+    .btn-amber { background: #f59e0b; color: white; }
+    .btn-amber:hover { background: #d97706; }
+    .btn-blue { background: #3b82f6; color: white; }
+    .btn-blue:hover { background: #2563eb; }
+    .btn-purple { background: #7c3aed; color: white; }
+    .btn-purple:hover { background: #6d28d9; }
+    .btn-green { background: #10b981; color: white; }
+    .btn-green:hover { background: #059669; }
+    .btn-gray { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
+    .btn-gray:hover { background: #e2e8f0; }
+    .btn-group { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    .log { font-family: 'SF Mono', Monaco, Consolas, monospace; font-size: 12px; background: #0f172a; color: #22d3ee; padding: 12px 16px; border-radius: 8px; margin-top: 10px; max-height: 200px; overflow-y: auto; white-space: pre-wrap; display: none; }
+    .log.show { display: block; }
+    .tag { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; }
+    .tag-red { background: #fef2f2; color: #dc2626; }
+    .tag-green { background: #f0fdf4; color: #16a34a; }
+    .tag-blue { background: #eff6ff; color: #2563eb; }
+    .tag-amber { background: #fffbeb; color: #d97706; }
+    .divider { height: 1px; background: #e2e8f0; margin: 24px 0; }
+    .check { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: #475569; padding: 6px 0; }
+    .check b { color: #0f172a; }
+    .result { font-size: 12px; padding: 8px 12px; border-radius: 6px; margin-top: 8px; display: none; }
+    .result.success { display: block; background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+    .result.error { display: block; background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+    footer { text-align: center; padding: 32px; color: #94a3b8; font-size: 12px; }
+    @media (max-width: 640px) {
+      .container { padding: 20px 16px; }
+      h1 { font-size: 22px; }
+      .btn-group { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <div class="logo">My<span>App</span></div>
+    <div class="links">
+      <a href="#">Home</a>
+      <a href="#">Products</a>
+      <a href="#">Pricing</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <h1>CRM of <span>Techview</span> — Integration Test</h1>
+    <p class="subtitle">This page tests all CRM features: error logging, AI chat widget, contact tracking, ticket creation, and the auto-fix pipeline.</p>
+
+    <!-- ═══════ 1. ERROR LOGGING ═══════ -->
+    <div class="card">
+      <h2><span class="num">1</span> Error Logging</h2>
+      <p>Click buttons to trigger different error types. Each error is auto-captured by the SDK and sent to your CRM → Error Logs. Gemini AI will analyze ERROR/FATAL level errors.</p>
+
+      <div class="btn-group">
+        <button class="btn btn-red" onclick="triggerTypeError()">TypeError</button>
+        <button class="btn btn-red" onclick="triggerReferenceError()">ReferenceError</button>
+        <button class="btn btn-amber" onclick="triggerNetworkError()">Network Error</button>
+        <button class="btn btn-amber" onclick="triggerTimeoutError()">Timeout Error</button>
+        <button class="btn btn-purple" onclick="triggerCustomError('ERROR')">Custom ERROR</button>
+        <button class="btn btn-red" onclick="triggerCustomError('FATAL')">Custom FATAL</button>
+        <button class="btn btn-gray" onclick="triggerCustomError('WARN')">Custom WARN</button>
+        <button class="btn btn-gray" onclick="triggerCustomError('INFO')">Custom INFO</button>
+      </div>
+
+      <div id="error-log" class="log"></div>
+
+      <div style="margin-top: 12px;">
+        <div class="check"><b>Check in CRM:</b> Admin → Error Logs — you'll see each error with level, source, stack trace</div>
+        <div class="check"><b>Auto-analyzed:</b> ERROR and FATAL errors get Gemini AI root cause analysis</div>
+        <div class="check"><b>Email alert:</b> If SMTP is configured, admins get an email with AI analysis</div>
+      </div>
+    </div>
+
+    <!-- ═══════ 2. CHAT WIDGET ═══════ -->
+    <div class="card">
+      <h2><span class="num">2</span> AI Chat Widget</h2>
+      <p>The chat bubble in the bottom-right corner is your embeddable chatbot. It uses the chatbot configuration from your CRM project settings.</p>
+
+      <div class="btn-group">
+        <button class="btn btn-blue" onclick="if(window.AiCRMWidget)AiCRMWidget.open()">Open Chat Widget</button>
+        <button class="btn btn-gray" onclick="if(window.AiCRMWidget)AiCRMWidget.close()">Close Widget</button>
+      </div>
+
+      <div style="margin-top: 12px;">
+        <div class="check"><b>Try:</b> Click the blue bubble → type "Hello" → AI responds using your CRM chatbot config</div>
+        <div class="check"><b>Ticket tab:</b> Switch to "Create Ticket" in the widget → submit → check CRM → Tickets</div>
+        <div class="check"><b>Configure:</b> CRM → Admin → Chatbot → change bot name, welcome message, system prompt</div>
+      </div>
+    </div>
+
+    <!-- ═══════ 3. CONTACT IDENTIFICATION ═══════ -->
+    <div class="card">
+      <h2><span class="num">3</span> Contact Identification</h2>
+      <p>When a user logs into your app, call <code>identify()</code> to create/update them as a contact in the CRM. This also links their chat sessions and tickets.</p>
+
+      <div class="btn-group">
+        <button class="btn btn-green" onclick="identifyUser()">Identify as test@example.com</button>
+        <button class="btn btn-green" onclick="identifyCustom()">Identify with Custom Email</button>
+      </div>
+      <div id="identify-result" class="result"></div>
+
+      <div style="margin-top: 12px;">
+        <div class="check"><b>Check in CRM:</b> CRM → Contacts — new contact appears with source "sdk-web"</div>
+        <div class="check"><b>Widget link:</b> After identify, chat sessions are linked to the contact</div>
+      </div>
+    </div>
+
+    <!-- ═══════ 4. CUSTOM EVENT TRACKING ═══════ -->
+    <div class="card">
+      <h2><span class="num">4</span> Event Tracking</h2>
+      <p>Track any custom event from your app — purchases, signups, button clicks, feature usage.</p>
+
+      <div class="btn-group">
+        <button class="btn btn-blue" onclick="trackEvent('button_clicked', {button:'signup',page:'home'})">Track: Button Click</button>
+        <button class="btn btn-blue" onclick="trackEvent('purchase_completed', {amount:99.99,plan:'pro',currency:'USD'})">Track: Purchase</button>
+        <button class="btn btn-blue" onclick="trackEvent('feature_used', {feature:'export',format:'csv'})">Track: Feature Used</button>
+        <button class="btn btn-blue" onclick="trackPageView()">Track: Page View</button>
+      </div>
+      <div id="event-result" class="result"></div>
+
+      <div style="margin-top: 12px;">
+        <div class="check"><b>Check in CRM:</b> These events are stored in SdkEvent table, linked to the API key</div>
+      </div>
+    </div>
+
+    <!-- ═══════ 5. TICKET CREATION ═══════ -->
+    <div class="card">
+      <h2><span class="num">5</span> Programmatic Ticket Creation</h2>
+      <p>Create support tickets from code — useful for automated bug reports, user feedback forms, or error escalation.</p>
+
+      <div class="btn-group">
+        <button class="btn btn-purple" onclick="createTicket()">Create Test Ticket via SDK</button>
+      </div>
+      <div id="ticket-result" class="result"></div>
+
+      <div style="margin-top: 12px;">
+        <div class="check"><b>Check in CRM:</b> Support → Tickets — ticket appears with "Submitted via SDK" note</div>
+        <div class="check"><b>AI analysis:</b> The ticket gets auto-analyzed by Gemini for issue type and priority</div>
+      </div>
+    </div>
+
+    <!-- ═══════ 6. AUTO-FIX PIPELINE ═══════ -->
+    <div class="card">
+      <h2><span class="num">6</span> Auto-Fix Pipeline (Claude Code)</h2>
+      <p>After errors are logged, admins can trigger the auto-fix pipeline. Claude Code CLI analyzes the codebase and proposes a fix.</p>
+
+      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-top: 8px;">
+        <div style="font-size: 13px; color: #374151; line-height: 1.8;">
+          <b>How to test locally:</b><br><br>
+          <b>Step 1:</b> Go to CRM → Admin → Auto-Fix → VPS Agents tab → Register Agent<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;Name: <code>Local Test</code>, Host: <code>localhost</code>, Path: your project path<br><br>
+          <b>Step 2:</b> Copy the Agent Key from the setup instructions shown<br><br>
+          <b>Step 3:</b> Open a new terminal and run:<br>
+          <div class="log show" style="margin: 8px 0;">cd "D:\Onkar\Office work\india\ai-support-saas\vps-agent"
+set CRM_URL=http://localhost:3001
+set AGENT_KEY=vps_YOUR_KEY_HERE
+set PROJECT_PATH=D:\Onkar\Office work\india\ai-support-saas\server
+node agent.js</div>
+          <b>Step 4:</b> Go to CRM → Error Logs → expand any error → click <span class="tag tag-blue" style="font-size:11px;">Auto-Fix with Claude Code</span><br><br>
+          <b>Step 5:</b> Watch the agent terminal — Claude Code will analyze the code<br><br>
+          <b>Step 6:</b> Go to CRM → Auto-Fix → see pipeline progress → Approve & Deploy
+        </div>
+      </div>
+
+      <div style="margin-top: 12px;">
+        <div class="check"><b>Pipeline stages:</b> Detected → Analyzing → Fix Proposed → Awaiting Approval → Approved → Fixing → Committed → Deploying → Deployed</div>
+        <div class="check"><b>No API cost:</b> Uses Claude Code CLI from your Max plan subscription</div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- ═══════ STATUS ═══════ -->
+    <div class="card" id="status-card">
+      <h2>Connection Status</h2>
+      <div id="status-checks" style="font-size: 13px;"></div>
+      <button class="btn btn-gray" onclick="checkStatus()" style="margin-top: 12px;">Refresh Status</button>
+    </div>
+  </div>
+
+  <footer>CRM of Techview — Integration Test Page</footer>
+
+  <!-- ═══════════════════════════════════════ -->
+  <!--  SDK + Widget Scripts                    -->
+  <!--  Replace API key after creating in CRM   -->
+  <!-- ═══════════════════════════════════════ -->
+  <script src="http://localhost:3001/sdk.js?key=sk_live_070f265985558fc0e2c435d67072a1faa626f5cbc73239ad"></script>
+  <script src="http://localhost:3001/widget.js?key=sk_live_070f265985558fc0e2c435d67072a1faa626f5cbc73239ad"></script>
+
+  <script>
+    var API_KEY = 'sk_live_070f265985558fc0e2c435d67072a1faa626f5cbc73239ad';
+    var CRM_URL = 'http://localhost:3001';
+
+    // ─── Logging helper ───
+    function logToPanel(id, msg, type) {
+      var el = document.getElementById(id);
+      if (el.classList.contains('log')) {
+        el.classList.add('show');
+        el.textContent += '[' + new Date().toLocaleTimeString() + '] ' + msg + '\n';
+        el.scrollTop = el.scrollHeight;
+      } else {
+        el.className = 'result ' + (type || 'success');
+        el.style.display = 'block';
+        el.textContent = msg;
+        setTimeout(function() { el.style.display = 'none'; }, 5000);
+      }
+    }
+
+    // ─── User profile loader ───
+    function loadUserProfile() {
+      var el = document.getElementById('user-greeting');
+      if (el) el.textContent = 'Welcome, Guest';
+    }
+
+    // Load user profile 2 seconds after page load
+    setTimeout(loadUserProfile, 2000);
+
+    // ─── 1. Error Triggers ───
+    function triggerTypeError() {
+      logToPanel('error-log', 'Triggering TypeError...');
+      setTimeout(function() { null.someMethod(); }, 100);
+    }
+
+    function triggerReferenceError() {
+      logToPanel('error-log', 'Triggering ReferenceError...');
+      setTimeout(function() { console.log(undefinedVariable123.prop); }, 100);
+    }
+
+    function triggerNetworkError() {
+      logToPanel('error-log', 'Triggering Network Error (fetch to invalid URL)...');
+      fetch('http://localhost:19999/fake-endpoint')
+        .catch(function(err) {
+          if (window.AiCRM) {
+            AiCRM.error('Network Error: ' + err.message, {
+              source: 'network-test',
+              level: 'ERROR',
+              endpoint: 'http://localhost:19999/fake-endpoint'
+            });
+          }
+          logToPanel('error-log', 'Network error sent to CRM: ' + err.message);
+        });
+    }
+
+    function triggerTimeoutError() {
+      logToPanel('error-log', 'Triggering Timeout Error...');
+      if (window.AiCRM) {
+        AiCRM.error('Request timeout: Operation exceeded 30s limit', {
+          source: 'timeout-test',
+          level: 'ERROR',
+          endpoint: '/api/heavy-operation',
+          stack: 'TimeoutError: Operation timed out after 30000ms\n    at Timeout._onTimeout (app.js:142:11)\n    at listOnTimeout (internal/timers.js:557:17)'
+        });
+      }
+      logToPanel('error-log', 'Timeout error sent to CRM');
+    }
+
+    function triggerCustomError(level) {
+      var messages = {
+        'FATAL': 'Database connection lost — all queries failing',
+        'ERROR': 'Payment processing failed for order #12345',
+        'WARN': 'API response time exceeds threshold (4.2s > 3s)',
+        'INFO': 'User session started — user@example.com logged in'
+      };
+      var sources = { 'FATAL': 'DatabaseService', 'ERROR': 'PaymentService', 'WARN': 'PerformanceMonitor', 'INFO': 'AuthService' };
+
+      logToPanel('error-log', 'Sending ' + level + ' to CRM...');
+      if (window.AiCRM) {
+        AiCRM.error(messages[level], {
+          source: sources[level],
+          level: level,
+          endpoint: '/api/' + level.toLowerCase() + '-test'
+        });
+      }
+      logToPanel('error-log', level + ' sent: ' + messages[level]);
+    }
+
+    // ─── 3. Contact Identification ───
+    function identifyUser() {
+      if (window.AiCRM) {
+        AiCRM.identify({ email: 'test@example.com', firstName: 'Test', lastName: 'User', phone: '+91-98765-00000' });
+        logToPanel('identify-result', 'Identified as test@example.com — check CRM → Contacts', 'success');
+      }
+      if (window.AiCRMWidget) AiCRMWidget.identify('test@example.com', 'Test User');
+    }
+
+    function identifyCustom() {
+      var email = prompt('Enter email:');
+      if (!email) return;
+      var name = prompt('Enter name:') || email.split('@')[0];
+      if (window.AiCRM) {
+        AiCRM.identify({ email: email, firstName: name });
+        logToPanel('identify-result', 'Identified as ' + email + ' — check CRM → Contacts', 'success');
+      }
+      if (window.AiCRMWidget) AiCRMWidget.identify(email, name);
+    }
+
+    // ─── 4. Event Tracking ───
+    function trackEvent(name, props) {
+      if (window.AiCRM) {
+        AiCRM.track(name, props);
+        logToPanel('event-result', 'Tracked: ' + name + ' — ' + JSON.stringify(props), 'success');
+      }
+    }
+
+    function trackPageView() {
+      if (window.AiCRM) {
+        AiCRM.pageview();
+        logToPanel('event-result', 'Page view tracked: ' + window.location.href, 'success');
+      }
+    }
+
+    // ─── 5. Ticket Creation ───
+    function createTicket() {
+      if (window.AiCRM) {
+        AiCRM.ticket({
+          title: 'Test ticket from integration page',
+          description: 'This is a test ticket created via the SDK. User was on the integration test page.\n\nBrowser: ' + navigator.userAgent,
+          priority: 'MEDIUM'
+        });
+        logToPanel('ticket-result', 'Ticket created — check CRM → Tickets', 'success');
+      }
+    }
+
+    // ─── Status Check ───
+    function checkStatus() {
+      var el = document.getElementById('status-checks');
+      el.innerHTML = 'Checking...';
+
+      var checks = [];
+
+      // Check CRM server
+      fetch(CRM_URL + '/api/health')
+        .then(function(r) { return r.json(); })
+        .then(function(d) { checks.push({ name: 'CRM Server', ok: true, detail: d.status }); })
+        .catch(function() { checks.push({ name: 'CRM Server', ok: false, detail: 'Not reachable at ' + CRM_URL }); })
+        .finally(function() {
+          // Check SDK loaded
+          checks.push({ name: 'SDK (AiCRM)', ok: !!window.AiCRM, detail: window.AiCRM ? 'Loaded, session: ' + (window.AiCRM.getSessionId ? AiCRM.getSessionId() : 'N/A') : 'Not loaded' });
+          checks.push({ name: 'Widget (AiCRMWidget)', ok: !!window.AiCRMWidget, detail: window.AiCRMWidget ? 'Loaded' : 'Not loaded' });
+          checks.push({ name: 'API Key', ok: API_KEY.startsWith('sk_live_'), detail: API_KEY.substring(0, 16) + '...' });
+
+          el.innerHTML = checks.map(function(c) {
+            return '<div style="padding:6px 0;display:flex;align-items:center;gap:8px;">' +
+              '<span class="tag ' + (c.ok ? 'tag-green' : 'tag-red') + '">' + (c.ok ? 'OK' : 'FAIL') + '</span>' +
+              '<b>' + c.name + '</b> — <span style="color:#64748b">' + c.detail + '</span>' +
+            '</div>';
+          }).join('');
+        });
+    }
+
+    // Auto-check on load
+    window.addEventListener('load', function() { setTimeout(checkStatus, 1500); });
+  </script>
+
+</body>
+</html>
