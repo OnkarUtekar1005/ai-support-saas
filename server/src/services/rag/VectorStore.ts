@@ -55,6 +55,28 @@ export class VectorStore {
     return scored;
   }
 
+  async searchByProject(organizationId: string, projectId: string, query: string, topK = 5): Promise<SearchResult[]> {
+    const queryEmbedding = await this.embeddings.embedText(query);
+
+    const entries = await prisma.knowledgeEntry.findMany({
+      where: { organizationId, projectId },
+      select: { id: true, title: true, content: true, embedding: true },
+    });
+
+    const scored = entries
+      .map((entry) => ({
+        id: entry.id,
+        title: entry.title,
+        content: entry.content,
+        score: cosineSimilarity(queryEmbedding, entry.embedding),
+      }))
+      .filter((e) => e.score > 0.3)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, topK);
+
+    return scored;
+  }
+
   async addBatch(
     organizationId: string,
     entries: Array<{ title: string; content: string; category?: string }>

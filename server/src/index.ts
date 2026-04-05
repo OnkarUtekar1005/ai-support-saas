@@ -26,10 +26,19 @@ import { agentWebhookRoutes } from './routes/agentWebhook';
 import { widgetScriptRoutes } from './routes/widgetScript';
 import { widgetRoutes } from './routes/widget';
 import { chatbotConfigRoutes } from './routes/chatbotConfig';
+import { orchestratorRoutes } from './routes/orchestrator';
+import { agentConfigRoutes } from './routes/agentConfig';
+import { documentRoutes } from './routes/documents';
+import { functionalAgentRoutes } from './routes/functionalAgent';
+import { notificationRoutes } from './routes/notifications';
+import { reminderConfigRoutes } from './routes/reminderConfig';
+import { testErrorRoutes } from './routes/testErrors';
 import { errorHandler } from './middleware/errorHandler';
 import { ErrorLogger } from './services/logging/ErrorLogger';
 import { setupSocketHandlers } from './controllers/socketController';
 import { prisma } from './utils/prisma';
+import { setupErrorStream } from './services/logging/ErrorStreamSocket';
+import { ErrorIngestionService } from './services/logging/ErrorIngestionService';
 
 const app = express();
 const httpServer = createServer(app);
@@ -63,7 +72,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(
   rateLimit({
     windowMs: 15 * 60 * 1000, // 15 min
-    max: 200,
+    max: 1000,
     standardHeaders: true,
     legacyHeaders: false,
   })
@@ -89,6 +98,8 @@ app.use('/api/contacts', contactRoutes);
 app.use('/api/companies', companyRoutes);
 app.use('/api/deals', dealRoutes);
 app.use('/api/activities', activityRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/reminder-config', reminderConfigRoutes);
 
 // SDK routes (API key auth — for external apps)
 app.use('/api/sdk', sdkRoutes);
@@ -98,14 +109,24 @@ app.use('/api/agent-webhook', agentWebhookRoutes);
 app.use('/api/pipeline', pipelineRoutes);
 app.use('/api/widget', widgetRoutes);
 app.use('/api/chatbot-config', chatbotConfigRoutes);
+app.use('/api/orchestrator', orchestratorRoutes);
+app.use('/api/agent-config', agentConfigRoutes);
+app.use('/api/documents', documentRoutes);
+app.use('/api/functional-agent', functionalAgentRoutes);
 app.use('/', sdkScriptRoutes);  // serves /sdk.js
 app.use('/', widgetScriptRoutes); // serves /widget.js
+
+// Test error routes (no auth — for testing orchestrator)
+app.use('/api/test-errors', testErrorRoutes);
 
 // Serve test website at /test
 app.use('/test', express.static(path.resolve(process.cwd(), '../test-website')));
 
 // WebSocket handlers
 setupSocketHandlers(io);
+
+// WebSocket error stream for external apps (/sdk/stream namespace)
+setupErrorStream(io);
 
 // Global error handler (logs errors + sends to Gemini for analysis)
 app.use(errorHandler);
@@ -117,9 +138,19 @@ process.on('SIGTERM', async () => {
   httpServer.close(() => process.exit(0));
 });
 
-httpServer.listen(config.port, () => {
+httpServer.listen(config.port, async () => {
   console.log(`🚀 AI Support SaaS server running on port ${config.port}`);
   console.log(`   Environment: ${config.nodeEnv}`);
+
+  // Rebuild in-memory error stats from today's log files
+  try {
+    await ErrorIngestionService.getInstance().rebuildFromLogs();
+    console.log('Error ingestion service initialized (log-file based)');
+  } catch (err) {
+    console.error('Failed to rebuild error stats:', (err as Error).message);
+  }
+
+  // Orchestrator runs as a standalone CLI: npm run orchestrator
 });
 
 export { io };

@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { authenticate, AuthRequest } from '../middleware/auth';
+import { authenticate, AuthRequest, getUserProjectIds } from '../middleware/auth';
 import { prisma } from '../utils/prisma';
 
 export const dealRoutes = Router();
@@ -9,6 +9,13 @@ dealRoutes.use(authenticate);
 dealRoutes.get('/', async (req: AuthRequest, res: Response) => {
   const { projectId, stage, ownerId } = req.query;
   const where: any = { organizationId: req.user!.organizationId };
+
+  // Project scoping
+  const allowedIds = await getUserProjectIds(req.user!.id, req.user!.role);
+  if (allowedIds !== null) {
+    where.projectId = { in: allowedIds };
+  }
+
   if (projectId) where.projectId = projectId;
   if (stage) where.stage = stage;
   if (ownerId) where.ownerId = ownerId;
@@ -30,6 +37,13 @@ dealRoutes.get('/', async (req: AuthRequest, res: Response) => {
 dealRoutes.get('/pipeline', async (req: AuthRequest, res: Response) => {
   const { projectId } = req.query;
   const where: any = { organizationId: req.user!.organizationId };
+
+  // Project scoping
+  const pipelineAllowedIds = await getUserProjectIds(req.user!.id, req.user!.role);
+  if (pipelineAllowedIds !== null) {
+    where.projectId = { in: pipelineAllowedIds };
+  }
+
   if (projectId) where.projectId = projectId;
 
   const stages = ['LEAD', 'QUALIFIED', 'PROPOSAL', 'NEGOTIATION', 'CLOSED_WON', 'CLOSED_LOST'];

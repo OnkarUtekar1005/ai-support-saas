@@ -38,6 +38,11 @@ model Organization {
   // Auto-Fix Pipeline
   pipelines        Pipeline[]
   vpsAgents        VpsAgent[]
+
+  // Agents
+  projectDocuments      ProjectDocument[]
+  functionalResolutions FunctionalResolution[]
+  notifications         Notification[]
 }
 
 enum Plan {
@@ -58,8 +63,10 @@ model User {
   updatedAt      DateTime @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  tickets      Ticket[]
-  chatSessions ChatSession[]
+  tickets        Ticket[]       @relation("ticketCreator")
+  assignedTickets Ticket[]      @relation("ticketAssignee")
+  chatSessions   ChatSession[]
+  notifications  Notification[]
 
   // CRM
   ownedDeals       Deal[]       @relation("dealOwner")
@@ -77,28 +84,40 @@ enum Role {
 
 // ─── Support Tickets ───
 model Ticket {
-  id             String       @id @default(uuid())
+  id             String        @id @default(uuid())
   title          String
-  description    String       @db.Text
-  status         TicketStatus @default(OPEN)
-  priority       Priority     @default(MEDIUM)
+  description    String        @db.Text
+  status         TicketStatus  @default(OPEN)
+  priority       Priority      @default(MEDIUM)
   issueType      String?
+  issueCategory  IssueCategory @default(UNKNOWN)
   confidence     Float?
   analysis       Json?
-  resolution     String?      @db.Text
+  resolution     String?       @db.Text
   projectId      String?
   organizationId String
   createdById    String
   contactId      String?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  assigneeId     String?
 
   organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  createdBy    User          @relation(fields: [createdById], references: [id])
+  createdBy    User          @relation("ticketCreator", fields: [createdById], references: [id])
+  assignee     User?         @relation("ticketAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   project      Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
   contact      Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
   chatSessions ChatSession[]
   attachments  Attachment[]
+
+  @@index([assigneeId])
+}
+
+enum IssueCategory {
+  TECHNICAL
+  FUNCTIONAL
+  UNKNOWN
 }
 
 enum TicketStatus {
@@ -193,11 +212,19 @@ model KnowledgeEntry {
   content        String   @db.Text
   category       String?
   embedding      Float[]  // vector embedding
+  projectId      String?  // project-scoped entries
+  documentId     String?  // source document
+  chunkIndex     Int?     // position within document
   organizationId String
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project      Project?          @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  document     ProjectDocument?  @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@index([documentId])
 }
 
 // ─── Error Logs (with Gemini Analysis) ───
@@ -216,6 +243,13 @@ model ErrorLog {
   aiSuggestion    String?       @db.Text  // Gemini's fix suggestion
   analyzed        Boolean       @default(false)
   emailSent       Boolean       @default(false)
+  fingerprint     String?       // stable hash for dedup + regression detection
+  language        String?       // javascript, python, java, go, ruby, etc.
+  framework       String?       // express, django, spring-boot, etc.
+  environment     String?       // production, staging, development
+  hostname        String?       // machine hostname
+  metadata        Json?         // generic key-value extra context
+  occurrenceCount Int           @default(1)  // incremented on dedup
   organizationId  String
   createdAt       DateTime      @default(now())
 
@@ -227,6 +261,7 @@ model ErrorLog {
   @@index([analyzed])
   @@index([projectId])
   @@index([category])
+  @@index([fingerprint])
 }
 
 enum ErrorLevel {
@@ -282,7 +317,14 @@ model Project {
   errorLogs    ErrorLog[]
   pipelines    Pipeline[]
   vpsAgents    VpsAgent[]
+  autoFixConfig AutoFixConfig?
+  knowledgeEntries     KnowledgeEntry[]
+  documents            ProjectDocument[]
+  functionalResolutions FunctionalResolution[]
+  functionalAgentConfig FunctionalAgentConfig?
+  reminderConfig       ReminderConfig?
 
+  @@unique([name, organizationId])
   @@index([organizationId])
 }
 
@@ -639,6 +681,14 @@ model Pipeline {
   approvedBy       String?        // user ID who approved
   approvedAt       DateTime?
   rejectedReason   String?
+  // Orchestrator fields
+  autoTriggered      Boolean      @default(false)
+  worktreePath       String?
+  priority           Int          @default(0)
+  claudeSessionId    String?      // for --resume between analysis and fix
+  testOutput         String?      @db.Text
+  isRegression       Boolean      @default(false)
+  previousPipelineId String?      // link to the fix that didn't hold
   // Links
   vpsAgentId       String?
   projectId        String?
@@ -658,17 +708,22 @@ model Pipeline {
 
 enum PipelineStatus {
   DETECTED
+  QUEUED
+  QUEUED_CONFLICT
   ANALYZING
   FIX_PROPOSED
   AWAITING_APPROVAL
   APPROVED
   FIXING
   TESTING
+  TEST_FAILED
   COMMITTED
+  PR_CREATED
   DEPLOYING
   DEPLOYED
   FAILED
   REJECTED
+  REGRESSION
 }
 
 // ─── Pipeline Activity Log ───
@@ -681,4 +736,138 @@ model PipelineLog {
   createdAt  DateTime @default(now())
 
   pipeline Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+}
+
+// ─── Auto-Fix Orchestrator Config (per project) ───
+model AutoFixConfig {
+  id                  String   @id @default(uuid())
+  projectId           String   @unique
+  enabled             Boolean  @default(false)
+  autoTriggerLevel    String   @default("high")   // min Gemini severity: low, medium, high, critical
+  maxConcurrent       Int      @default(2)
+  cooldownMinutes     Int      @default(30)
+  gitProvider         String   @default("github")  // github, gitlab, bitbucket
+  gitTokenEnc         String?                       // encrypted PAT for PR creation
+  gitRepoUrl          String?                       // https://github.com/user/repo
+  targetBranch        String   @default("main")
+  testCommand         String   @default("npm test")
+  createPR            Boolean  @default(true)
+  autoDeployOnApprove Boolean  @default(false)
+  projectPath         String?                       // where code lives on VPS
+  // Tech stack (generic — supports any language/framework)
+  language            String?  // auto-detected if blank — supports any language
+  framework           String?                         // express, django, spring-boot, gin, rails, laravel, etc.
+  buildCommand        String   @default("npm run build")
+  installCommand      String?                         // npm install, pip install -r requirements.txt, mvn install
+  startCommand        String?                         // npm start, python manage.py runserver
+  restartCommand      String?                         // pm2 restart all, systemctl restart app
+  entryPoint          String?                         // src/index.ts, app/main.py, src/Main.java
+  sourceDir           String?                         // src/, app/, cmd/
+  testDir             String?                         // tests/, test/, __tests__/
+  customPromptPrefix  String?  @db.Text               // extra context added to every Claude prompt
+  excludePaths        String[]                        // never modify: ["migrations/", "vendor/"]
+
+  project             Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+// ═══════════════════════════════════════════
+// ─── FUNCTIONAL AGENT ───
+// ═══════════════════════════════════════════
+
+// ─── Functional Agent Config (per project) ───
+model FunctionalAgentConfig {
+  id                   String   @id @default(uuid())
+  projectId            String   @unique
+  enabled              Boolean  @default(false)
+  systemPrompt         String?  @db.Text   // custom instructions for this project's domain
+  confidenceThreshold  Float    @default(0.7)
+  autoResolveTickets   Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+// ─── Project Documents (uploaded knowledge base files) ───
+model ProjectDocument {
+  id             String   @id @default(uuid())
+  projectId      String
+  organizationId String
+  fileName       String
+  fileType       String   // pdf, docx, txt, md
+  filePath       String   // stored file path
+  fileSize       Int
+  status         String   @default("pending") // pending, processing, indexed, failed
+  chunkCount     Int      @default(0)
+  errorMessage   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  project        Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  knowledgeEntries KnowledgeEntry[]
+
+  @@index([projectId])
+}
+
+// ─── Functional Resolutions (agent-generated answers) ───
+model FunctionalResolution {
+  id               String   @id @default(uuid())
+  ticketId         String?
+  errorLogId       String?
+  projectId        String
+  organizationId   String
+  query            String   @db.Text        // the original issue description
+  rootCause        String   @db.Text        // why the issue occurred
+  stepsAnalysis    String?  @db.Text        // what user did wrong vs correct steps
+  solution         String   @db.Text        // step-by-step resolution
+  knowledgeSources Json?                    // which KB entries were used [{id, title, score}]
+  confidence       Float    @default(0)
+  feedback         String?                  // helpful / not_helpful
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  project        Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([ticketId])
+}
+
+// ═══════════════════════════════════════════
+// ─── NOTIFICATIONS & REMINDERS ───
+// ═══════════════════════════════════════════
+
+model Notification {
+  id             String   @id @default(uuid())
+  userId         String
+  type           String   // TASK_ASSIGNED, STATUS_UPDATE, REMINDER, PR_REVIEW, ERROR_ALERT
+  title          String
+  message        String   @db.Text
+  link           String?
+  read           Boolean  @default(false)
+  organizationId String
+  createdAt      DateTime @default(now())
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+  @@index([organizationId])
+}
+
+model ReminderConfig {
+  id                String   @id @default(uuid())
+  projectId         String   @unique
+  enabled           Boolean  @default(false)
+  overdueReminder   Boolean  @default(true)
+  dueSoonHours      Int      @default(24)
+  statusUpdateFreq  String   @default("daily") // daily, weekly, none
+  assignOnCreate    Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }

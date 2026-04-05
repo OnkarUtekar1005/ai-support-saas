@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
 import { Save, Bot, Eye, MessageSquare, X } from 'lucide-react';
+import { ProjectSelector } from '../components/shared';
 
 const DEFAULT_CONFIG = {
   botName: 'AI Support',
@@ -92,9 +93,7 @@ export function ChatbotConfigPage() {
           <p className="text-sm text-gray-500 mt-1">Configure the AI chatbot for each project</p>
         </div>
         <div className="flex gap-2">
-          <select value={selectedProject} onChange={(e) => setSelectedProject(e.target.value)} className="input-field w-auto">
-            {projects.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          <ProjectSelector projects={projects} value={selectedProject} onChange={setSelectedProject} />
         </div>
       </div>
 

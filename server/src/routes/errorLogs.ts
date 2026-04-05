@@ -1,14 +1,13 @@
 import { Router, Response } from 'express';
-import { authenticate, AuthRequest, requireRole } from '../middleware/auth';
+import { authenticate, AuthRequest, requireRole, getUserProjectIds } from '../middleware/auth';
 import { ErrorLogger } from '../services/logging/ErrorLogger';
 import { GeminiLogAnalyzer } from '../services/ai/GeminiLogAnalyzer';
-import { prisma } from '../utils/prisma';
 
 export const errorLogRoutes = Router();
 errorLogRoutes.use(authenticate);
 errorLogRoutes.use(requireRole('ADMIN'));
 
-// Get error logs with pagination and filters
+// Get error logs — reads from in-memory buffer, not DB
 errorLogRoutes.get('/', async (req: AuthRequest, res: Response) => {
   try {
     const { page, limit, level, analyzed, projectId, category } = req.query;
@@ -22,66 +21,58 @@ errorLogRoutes.get('/', async (req: AuthRequest, res: Response) => {
       category: category as string,
     });
 
+    // Project scoping: filter logs to allowed projects
+    const allowedIds = await getUserProjectIds(req.user!.id, req.user!.role);
+    if (allowedIds !== null) {
+      result.logs = result.logs.filter((log: any) => !log.projectId || allowedIds.includes(log.projectId));
+      result.total = result.logs.length;
+      result.totalPages = Math.ceil(result.total / (limit ? Number(limit) : 50));
+    }
+
     res.json(result);
   } catch {
     res.status(500).json({ error: 'Failed to fetch error logs' });
   }
 });
 
-// Get error log stats (dashboard)
+// Get error log stats — from in-memory counters
 errorLogRoutes.get('/stats', async (req: AuthRequest, res: Response) => {
-  const orgId = req.user!.organizationId;
-  const now = new Date();
-  const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  const last7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-
-  const [total, last24hCount, last7dCount, byLevel, unanalyzed] = await Promise.all([
-    prisma.errorLog.count({ where: { organizationId: orgId } }),
-    prisma.errorLog.count({ where: { organizationId: orgId, createdAt: { gte: last24h } } }),
-    prisma.errorLog.count({ where: { organizationId: orgId, createdAt: { gte: last7d } } }),
-    prisma.errorLog.groupBy({
-      by: ['level'],
-      where: { organizationId: orgId, createdAt: { gte: last7d } },
-      _count: true,
-    }),
-    prisma.errorLog.count({ where: { organizationId: orgId, analyzed: false } }),
-  ]);
-
-  res.json({
-    total,
-    last24h: last24hCount,
-    last7d: last7dCount,
-    unanalyzed,
-    byLevel: byLevel.reduce((acc, b) => ({ ...acc, [b.level]: b._count }), {}),
-  });
+  const stats = ErrorLogger.getStats(req.user!.organizationId);
+  res.json(stats);
 });
 
-// Re-analyze a specific error
-errorLogRoutes.post('/:id/reanalyze', async (req: AuthRequest, res: Response) => {
+// Get fingerprint summaries (grouped unique errors with counts)
+errorLogRoutes.get('/fingerprints', async (req: AuthRequest, res: Response) => {
+  const summaries = ErrorLogger.getFingerprintSummary(req.user!.organizationId);
+  res.json(summaries);
+});
+
+// Re-analyze a specific error fingerprint with Gemini
+errorLogRoutes.post('/:fingerprint/reanalyze', async (req: AuthRequest, res: Response) => {
   try {
-    const updated = await ErrorLogger.reanalyzeError(req.params.id);
+    const updated = await ErrorLogger.reanalyzeError(req.params.fingerprint as string);
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }
 });
 
-// Trend analysis for recent errors
+// Trend analysis — reads from log files
 errorLogRoutes.post('/trend-analysis', async (req: AuthRequest, res: Response) => {
   try {
     const { hours = 24 } = req.body;
-    const since = new Date(Date.now() - Number(hours) * 60 * 60 * 1000);
 
-    const errors = await prisma.errorLog.findMany({
-      where: { organizationId: req.user!.organizationId, createdAt: { gte: since } },
-      select: { message: true, source: true, createdAt: true },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-    });
+    const logEntries = await ErrorLogger.getLogEntries(req.user!.organizationId, Number(hours));
 
-    if (errors.length === 0) {
+    if (logEntries.length === 0) {
       return res.json({ patterns: [], systemicIssues: [], recommendations: [], riskLevel: 'low' });
     }
+
+    const errors = logEntries.map(e => ({
+      message: e.msg,
+      source: e.source,
+      createdAt: new Date(e.ts),
+    }));
 
     const analysis = await GeminiLogAnalyzer.analyzeTrend(errors);
     res.json(analysis);
@@ -90,11 +81,10 @@ errorLogRoutes.post('/trend-analysis', async (req: AuthRequest, res: Response) =
   }
 });
 
-// Get a single error log
-errorLogRoutes.get('/:id', async (req: AuthRequest, res: Response) => {
-  const log = await prisma.errorLog.findFirst({
-    where: { id: req.params.id, organizationId: req.user!.organizationId },
-  });
-  if (!log) return res.status(404).json({ error: 'Not found' });
-  res.json(log);
+// Get a single error by fingerprint
+errorLogRoutes.get('/:fingerprint', async (req: AuthRequest, res: Response) => {
+  const { ErrorIngestionService } = await import('../services/logging/ErrorIngestionService');
+  const entry = ErrorIngestionService.getInstance().getErrorByFingerprint(req.params.fingerprint as string);
+  if (!entry) return res.status(404).json({ error: 'Not found' });
+  res.json(entry);
 });

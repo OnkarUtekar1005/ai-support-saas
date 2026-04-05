@@ -122,21 +122,28 @@ sdkRoutes.post('/track', requirePermission('events'), async (req: SdkRequest, re
 // ─────────────────────────────────────────
 sdkRoutes.post('/error', requirePermission('errors'), async (req: SdkRequest, res: Response) => {
   try {
-    const { message, stack, source, level, endpoint, userId, email, pageUrl } = req.body;
+    const { message, stack, source, level, endpoint, userId, email, pageUrl, language, framework, environment, hostname, category, metadata } = req.body;
 
     if (!message) {
       return res.status(400).json({ error: 'message is required' });
     }
 
-    // Log to error monitoring system (with Gemini analysis + email alerts)
+    // Log to error monitoring system (file + memory + Gemini dedup)
     const errorId = await ErrorLogger.logError({
       level: level || 'ERROR',
       message,
       stack,
       source: source || `sdk-${req.apiKey!.name}`,
+      category,
       endpoint: endpoint || pageUrl,
       userId,
       organizationId: req.apiKey!.organizationId,
+      projectId: req.apiKey!.projectId || undefined,
+      language,
+      framework,
+      environment,
+      hostname,
+      metadata,
     });
 
     // Also track as SDK event
@@ -158,6 +165,51 @@ sdkRoutes.post('/error', requirePermission('errors'), async (req: SdkRequest, re
     res.json({ ok: true, errorId });
   } catch {
     res.status(500).json({ error: 'Failed to log error' });
+  }
+});
+
+// ─────────────────────────────────────────
+// 3b. BATCH ERRORS — Log multiple errors at once
+// ─────────────────────────────────────────
+sdkRoutes.post('/errors/batch', requirePermission('errors'), async (req: SdkRequest, res: Response) => {
+  try {
+    const { errors } = req.body;
+
+    if (!Array.isArray(errors) || errors.length === 0) {
+      return res.status(400).json({ error: 'errors array is required' });
+    }
+
+    if (errors.length > 50) {
+      return res.status(400).json({ error: 'Max 50 errors per batch' });
+    }
+
+    const results = [];
+    for (const err of errors) {
+      if (!err.message) continue;
+
+      const fingerprint = await ErrorLogger.logError({
+        level: err.level || 'ERROR',
+        message: err.message,
+        stack: err.stack,
+        source: err.source || `sdk-${req.apiKey!.name}`,
+        category: err.category,
+        endpoint: err.endpoint || err.pageUrl,
+        userId: err.userId,
+        organizationId: req.apiKey!.organizationId,
+        projectId: req.apiKey!.projectId || undefined,
+        language: err.language,
+        framework: err.framework,
+        environment: err.environment,
+        hostname: err.hostname,
+        metadata: err.metadata,
+      });
+
+      results.push({ fingerprint, message: err.message.substring(0, 100) });
+    }
+
+    res.json({ ok: true, count: results.length, results });
+  } catch {
+    res.status(500).json({ error: 'Failed to log errors batch' });
   }
 });
 

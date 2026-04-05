@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { authenticate, AuthRequest } from '../middleware/auth';
+import { authenticate, AuthRequest, getUserProjectIds } from '../middleware/auth';
 import { prisma } from '../utils/prisma';
 
 export const contactRoutes = Router();
@@ -10,6 +10,13 @@ contactRoutes.get('/', async (req: AuthRequest, res: Response) => {
   const { projectId, companyId, status, search, page = '1', limit = '50' } = req.query;
 
   const where: any = { organizationId: req.user!.organizationId };
+
+  // Project scoping
+  const allowedIds = await getUserProjectIds(req.user!.id, req.user!.role);
+  if (allowedIds !== null) {
+    where.projectId = { in: allowedIds };
+  }
+
   if (projectId) where.projectId = projectId;
   if (companyId) where.companyId = companyId;
   if (status) where.status = status;

@@ -35,6 +35,12 @@ projectRoutes.get('/:id', async (req: AuthRequest, res: Response) => {
   });
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
+  // Membership check for non-SUPER_ADMIN
+  const allowedIds = await getUserProjectIds(req.user!.id, req.user!.role);
+  if (allowedIds !== null && !allowedIds.includes(project.id)) {
+    return res.status(403).json({ error: 'You do not have access to this project' });
+  }
+
   // Pipeline summary
   const dealsByStage = await prisma.deal.groupBy({
     by: ['stage'],
@@ -49,6 +55,15 @@ projectRoutes.get('/:id', async (req: AuthRequest, res: Response) => {
 // Create project
 projectRoutes.post('/', async (req: AuthRequest, res: Response) => {
   const { name, description, color } = req.body;
+
+  // Check for duplicate name within the organization
+  const existing = await prisma.project.findFirst({
+    where: { name, organizationId: req.user!.organizationId },
+  });
+  if (existing) {
+    return res.status(400).json({ error: `A project named "${name}" already exists` });
+  }
+
   const project = await prisma.project.create({
     data: {
       name,
@@ -96,8 +111,37 @@ projectRoutes.delete('/:id/members/:userId', async (req: AuthRequest, res: Respo
   res.json({ success: true });
 });
 
-// Delete project
-projectRoutes.delete('/:id', requireRole('ADMIN'), async (req: AuthRequest, res: Response) => {
-  await prisma.project.delete({ where: { id: req.params.id } });
+// Delete project — SUPER_ADMIN only, cascades all related data
+projectRoutes.delete('/:id', requireRole('SUPER_ADMIN'), async (req: AuthRequest, res: Response) => {
+  const projectId = req.params.id as string;
+  const orgId = req.user!.organizationId;
+
+  // Verify project belongs to this org
+  const project = await prisma.project.findFirst({ where: { id: projectId, organizationId: orgId } });
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+
+  // Delete all related data (relations with onDelete: SetNull won't auto-cascade)
+  await prisma.$transaction([
+    prisma.pipelineLog.deleteMany({ where: { pipeline: { projectId } } }),
+    prisma.pipeline.deleteMany({ where: { projectId } }),
+    prisma.functionalResolution.deleteMany({ where: { projectId } }),
+    prisma.knowledgeEntry.deleteMany({ where: { projectId } }),
+    prisma.projectDocument.deleteMany({ where: { projectId } }),
+    prisma.activity.deleteMany({ where: { projectId } }),
+    prisma.deal.deleteMany({ where: { projectId } }),
+    prisma.contact.deleteMany({ where: { projectId } }),
+    prisma.company.deleteMany({ where: { projectId } }),
+    prisma.ticket.deleteMany({ where: { projectId } }),
+    prisma.errorLog.deleteMany({ where: { projectId } }),
+    prisma.vpsAgent.deleteMany({ where: { projectId } }),
+    prisma.apiKey.deleteMany({ where: { projectId } }),
+    prisma.projectMember.deleteMany({ where: { projectId } }),
+    prisma.autoFixConfig.deleteMany({ where: { projectId } }),
+    prisma.functionalAgentConfig.deleteMany({ where: { projectId } }),
+    prisma.reminderConfig.deleteMany({ where: { projectId } }),
+    prisma.chatbotConfig.deleteMany({ where: { projectId } }),
+    prisma.project.delete({ where: { id: projectId } }),
+  ]);
+
   res.json({ success: true });
 });

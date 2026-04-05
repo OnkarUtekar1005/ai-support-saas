@@ -145,6 +145,12 @@ widgetRoutes.post('/message', async (req: SdkRequest, res: Response) => {
     const prompt = `${systemPrompt}
 
 ${knowledgeContext ? `KNOWLEDGE BASE:\n${knowledgeContext}\n` : ''}
+
+IMPORTANT: If the user asks to create a ticket, raise an issue, report a bug, or log a problem, respond ONLY with this exact JSON format (no other text):
+{"create_ticket": true, "title": "short title of the issue", "description": "detailed description based on the conversation"}
+
+Otherwise respond normally as a helpful assistant.
+
 CONVERSATION:
 ${conversationHistory}
 User: ${content}
@@ -152,8 +158,81 @@ User: ${content}
 ${config.botName}:`;
 
     let aiResponse: string;
+    let ticketCreated: any = null;
+
     if (config.autoReply) {
       aiResponse = await geminiClient.generateContent(prompt, false);
+
+      // Check if AI wants to create a ticket — clean up markdown code blocks if present
+      try {
+        let trimmed = aiResponse.trim();
+        // Strip markdown code fences: ```json ... ``` or ``` ... ```
+        trimmed = trimmed.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+        if (trimmed.startsWith('{') && trimmed.includes('create_ticket')) {
+          const parsed = JSON.parse(trimmed);
+          if (parsed.create_ticket && parsed.title) {
+            // Find admin user for ticket creation
+            const admin = await prisma.user.findFirst({
+              where: { organizationId: req.apiKey!.organizationId, role: { in: ['SUPER_ADMIN', 'ADMIN'] } },
+            });
+
+            if (admin) {
+              // Build description with chat transcript
+              let fullDesc = parsed.description || content;
+              const transcript = session.messages.map((m) => `**${m.role}**: ${m.content}`).join('\n\n');
+              fullDesc += `\n\n---\n**Chat Transcript:**\n${transcript}\nUser: ${content}\n\n_Created via chatbot widget_`;
+              if (session.visitorEmail) fullDesc += `\nUser: ${session.visitorName || ''} <${session.visitorEmail}>`;
+
+              // Find contact
+              let contactId: string | null = null;
+              if (session.visitorEmail) {
+                const contact = await prisma.contact.findFirst({
+                  where: { email: session.visitorEmail, organizationId: req.apiKey!.organizationId },
+                });
+                contactId = contact?.id || null;
+              }
+
+              // Create ticket
+              const ticket = await prisma.ticket.create({
+                data: {
+                  title: parsed.title,
+                  description: fullDesc,
+                  priority: 'MEDIUM',
+                  projectId: req.apiKey!.projectId,
+                  contactId,
+                  createdById: admin.id,
+                  organizationId: req.apiKey!.organizationId,
+                },
+              });
+
+              ticketCreated = { id: ticket.id, title: ticket.title };
+
+              // Run AI classification on the ticket (async, don't block chat)
+              import('../services/ai/GeminiClient').then(({ GeminiClient: GC }) => {
+                import('../services/ai/TaskAnalyzer').then(({ TaskAnalyzer }) => {
+                  const analyzer = new TaskAnalyzer(new GC());
+                  analyzer.analyze(`${parsed.title}\n\n${parsed.description}`).then((analysis) => {
+                    prisma.ticket.update({
+                      where: { id: ticket.id },
+                      data: {
+                        issueType: analysis.issueType,
+                        issueCategory: analysis.issueCategory as any,
+                        confidence: analysis.confidence,
+                        analysis: analysis as any,
+                        priority: analysis.suggestedPriority as any,
+                      },
+                    }).catch(() => {});
+                  }).catch(() => {});
+                });
+              });
+
+              aiResponse = `I've created a support ticket for you:\n\n**${parsed.title}**\n\nTicket ID: ${ticket.id.slice(0, 8)}\n\nOur team will look into this and get back to you. Is there anything else I can help with?`;
+            }
+          }
+        }
+      } catch {
+        // Not a ticket JSON — normal response, continue
+      }
     } else {
       aiResponse = config.offlineMessage || 'Thanks for your message. Our team will get back to you soon.';
     }
@@ -189,7 +268,7 @@ ${config.botName}:`;
       }
     }
 
-    res.json({ userMessage: userMsg, aiMessage: aiMsg });
+    res.json({ userMessage: userMsg, aiMessage: aiMsg, ticketCreated });
   } catch (err) {
     await ErrorLogger.logError({
       level: 'ERROR',

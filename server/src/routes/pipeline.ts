@@ -39,60 +39,75 @@ pipelineRoutes.get('/:id', async (req: AuthRequest, res: Response) => {
   res.json(pipeline);
 });
 
-// Create pipeline from error log → triggers the whole flow
+// Create pipeline and send to orchestrator immediately
+// Works with both DB error logs (errorLogId) and in-memory errors (fingerprint)
 pipelineRoutes.post('/trigger', async (req: AuthRequest, res: Response) => {
   try {
-    const { errorLogId, vpsAgentId } = req.body;
+    const { errorLogId, fingerprint, errorMessage, errorStack, errorSource, projectId, geminiAnalysis, geminiSuggestion } = req.body;
 
-    // Get error log
-    const errorLog = await prisma.errorLog.findFirst({
-      where: { id: errorLogId, organizationId: req.user!.organizationId },
-    });
-    if (!errorLog) return res.status(404).json({ error: 'Error log not found' });
+    let message = errorMessage || '';
+    let stack = errorStack || null;
+    let source = errorSource || 'unknown';
+    let pId = projectId || null;
+    let analysis = geminiAnalysis || null;
+    let suggestion = geminiSuggestion || null;
 
-    // Get VPS agent
-    const agent = vpsAgentId
-      ? await prisma.vpsAgent.findFirst({ where: { id: vpsAgentId } })
-      : await prisma.vpsAgent.findFirst({ where: { projectId: errorLog.projectId || undefined, organizationId: req.user!.organizationId } });
+    // If errorLogId provided, try to read from DB (legacy path)
+    if (errorLogId) {
+      const errorLog = await prisma.errorLog.findFirst({
+        where: { id: errorLogId, organizationId: req.user!.organizationId },
+      });
+      if (errorLog) {
+        message = errorLog.message;
+        stack = errorLog.stack;
+        source = errorLog.source;
+        pId = errorLog.projectId;
+        analysis = errorLog.aiAnalysis;
+        suggestion = errorLog.aiSuggestion;
+      }
+    }
 
-    // Create pipeline
+    // If fingerprint provided, read from in-memory ingestion service
+    if (fingerprint && !message) {
+      const { ErrorIngestionService } = await import('../services/logging/ErrorIngestionService');
+      const entry = ErrorIngestionService.getInstance().getFingerprintDetail(fingerprint);
+      if (entry) {
+        message = entry.message;
+        stack = entry.stack || null;
+        source = entry.source;
+        pId = entry.projectId || pId;
+        analysis = entry.aiAnalysis || null;
+        suggestion = entry.aiSuggestion || null;
+      }
+    }
+
+    if (!message) {
+      return res.status(400).json({ error: 'Error details required (errorLogId, fingerprint, or errorMessage)' });
+    }
+
+    // Find AutoFixConfig for this project to get projectPath
+    const autoFixConfig = pId ? await prisma.autoFixConfig.findUnique({ where: { projectId: pId } }) : null;
+
+    // Create pipeline record
     const pipeline = await prisma.pipeline.create({
       data: {
-        errorLogId: errorLog.id,
-        errorMessage: errorLog.message,
-        errorSource: errorLog.source,
-        errorStack: errorLog.stack,
-        geminiAnalysis: errorLog.aiAnalysis,
-        geminiSuggestion: errorLog.aiSuggestion,
-        vpsAgentId: agent?.id,
-        projectId: errorLog.projectId,
+        errorMessage: message,
+        errorSource: source,
+        errorStack: stack,
+        geminiAnalysis: analysis,
+        geminiSuggestion: suggestion,
+        projectId: pId,
         organizationId: req.user!.organizationId,
         status: 'DETECTED',
+        autoTriggered: false,
+        priority: 5,
       },
     });
 
-    // Log
-    await addLog(pipeline.id, 'DETECTED', 'Pipeline created from error log');
+    await addLog(pipeline.id, 'DETECTED', 'Auto-fix triggered — orchestrator will analyze first');
 
-    // Build the Claude Code prompt
-    const claudePrompt = buildClaudePrompt(errorLog, agent);
-
-    await prisma.pipeline.update({
-      where: { id: pipeline.id },
-      data: { claudePrompt, status: 'ANALYZING' },
-    });
-    await addLog(pipeline.id, 'ANALYZING', 'Prompt prepared for Claude Code CLI');
-
-    // If agent is online, send command to VPS agent
-    if (agent?.isOnline) {
-      await addLog(pipeline.id, 'ANALYZING', `Sending to VPS agent: ${agent.name} (${agent.host})`);
-      // The VPS agent polls for pending work — we just set the status
-      await prisma.pipeline.update({
-        where: { id: pipeline.id },
-        data: { status: 'ANALYZING' },
-      });
-    } else {
-      await addLog(pipeline.id, 'ANALYZING', 'VPS agent offline. Pipeline queued — will execute when agent comes online. You can also run the prompt manually.');
+    if (!autoFixConfig?.projectPath || !pId) {
+      await addLog(pipeline.id, 'DETECTED', 'No AutoFixConfig found for this project. Configure auto-fix settings first (project path required).');
     }
 
     res.status(201).json(pipeline);
@@ -101,19 +116,44 @@ pipelineRoutes.post('/trigger', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// Approve pipeline — triggers Claude Code to apply the fix
+// Approve pipeline — triggers orchestrator to apply the fix with Claude Code
 pipelineRoutes.post('/:id/approve', async (req: AuthRequest, res: Response) => {
   const pipeline = await prisma.pipeline.findFirst({
-    where: { id: req.params.id, organizationId: req.user!.organizationId },
+    where: { id: req.params.id as string, organizationId: req.user!.organizationId },
   });
   if (!pipeline) return res.status(404).json({ error: 'Not found' });
 
   await prisma.pipeline.update({
-    where: { id: req.params.id },
+    where: { id: req.params.id as string },
     data: { status: 'APPROVED', approvedBy: req.user!.id, approvedAt: new Date() },
   });
-  await addLog(req.params.id, 'APPROVED', `Approved by ${req.user!.name}`);
+  await addLog(req.params.id as string, 'APPROVED', `Approved by ${req.user!.name}. Orchestrator will pick up via pg NOTIFY.`);
 
+  res.json({ ok: true });
+});
+
+// Retry failed/rejected pipeline — resets to DETECTED so orchestrator picks it up again
+pipelineRoutes.post('/:id/retry', async (req: AuthRequest, res: Response) => {
+  const pipeline = await prisma.pipeline.findFirst({
+    where: { id: req.params.id as string, organizationId: req.user!.organizationId },
+  });
+  if (!pipeline) return res.status(404).json({ error: 'Not found' });
+  if (!['FAILED', 'REJECTED', 'TEST_FAILED', 'REGRESSION'].includes(pipeline.status)) {
+    return res.status(400).json({ error: `Cannot retry pipeline in ${pipeline.status} status` });
+  }
+
+  await prisma.pipeline.update({
+    where: { id: req.params.id as string },
+    data: { status: 'DETECTED', rejectedReason: null, approvedBy: null, approvedAt: null },
+  });
+  await addLog(req.params.id as string, 'DETECTED', `Retried by ${req.user!.name}. Re-queued for analysis.`);
+  res.json({ ok: true });
+});
+
+// Delete pipeline and its logs
+pipelineRoutes.delete('/:id', async (req: AuthRequest, res: Response) => {
+  await prisma.pipelineLog.deleteMany({ where: { pipelineId: req.params.id as string } });
+  await prisma.pipeline.delete({ where: { id: req.params.id as string } });
   res.json({ ok: true });
 });
 

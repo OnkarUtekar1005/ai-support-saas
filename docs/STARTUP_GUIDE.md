@@ -107,6 +107,9 @@ npx prisma migrate dev --name init
 # Seed demo data
 npx prisma db seed
 
+# Install orchestrator DB triggers (for auto-fix pipeline)
+npm run setup:triggers
+
 cd ..
 ```
 
@@ -117,8 +120,10 @@ npm run dev
 ```
 
 This starts both servers concurrently:
-- **Backend:** http://localhost:3001
+- **Backend:** http://localhost:3001 (includes orchestrator agent)
 - **Frontend:** http://localhost:5173
+
+The orchestrator auto-starts with the server and listens for errors via PostgreSQL LISTEN/NOTIFY.
 
 ### Step 7: Open and Login
 
@@ -400,6 +405,11 @@ Expected response:
 | `SMTP_PASS` | No | — | SMTP password/app password |
 | `ADMIN_EMAIL` | No | — | Default admin email for alerts |
 | `CLIENT_URL` | No | `http://localhost:5173` | Frontend URL (for CORS) |
+| `MAX_WORKERS` | No | `5` | Max concurrent Claude Code processes |
+| `MAX_PER_PROJECT` | No | `2` | Max concurrent fixes per project |
+| `GITHUB_TOKEN` | No | — | GitHub PAT for creating PRs |
+| `CLAUDE_COMMAND` | No | `claude` | Claude Code CLI command |
+| `WORKTREE_BASE_DIR` | No | `/tmp/orchestrator-fixes` | Temp dir for git worktrees |
 
 ---
 
@@ -503,3 +513,8 @@ Before deploying to production:
 - [ ] Set up health check monitoring on `/api/health`
 - [ ] Review and restrict CORS origins
 - [ ] Encrypt database credential storage (replace plaintext `passwordEnc`)
+- [ ] Install Claude Code CLI on server (`npm i -g @anthropic-ai/claude-code && claude login`)
+- [ ] Run `npm run setup:triggers` on production database
+- [ ] Configure `AutoFixConfig` for each project via `/api/orchestrator/config`
+- [ ] Set `GITHUB_TOKEN` for PR creation
+- [ ] Set `WORKTREE_BASE_DIR` to a path with enough disk space

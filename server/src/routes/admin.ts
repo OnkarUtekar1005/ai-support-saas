@@ -54,7 +54,7 @@ adminRoutes.post('/users/:id/projects', async (req: AuthRequest, res: Response) 
   }
 
   const member = await prisma.projectMember.upsert({
-    where: { projectId_userId: { projectId, userId: req.params.id } },
+    where: { projectId_userId: { projectId, userIasdd: req.params.id } },
     update: { role: projectRole || 'MANAGER' },
     create: {
       projectId,

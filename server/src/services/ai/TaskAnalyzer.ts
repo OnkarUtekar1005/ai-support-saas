@@ -12,6 +12,7 @@ export interface TaskAnalysis {
   summary: string;
   suggestedPriority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
   sqlNeeded: boolean;
+  issueCategory: 'TECHNICAL' | 'FUNCTIONAL' | 'UNKNOWN';
 }
 
 export class TaskAnalyzer {
@@ -41,8 +42,14 @@ Respond in this exact JSON format (no markdown, no code blocks):
   },
   "summary": "one-line summary of the issue",
   "suggestedPriority": "LOW|MEDIUM|HIGH|CRITICAL",
-  "sqlNeeded": true/false
-}`;
+  "sqlNeeded": true/false,
+  "issueCategory": "TECHNICAL|FUNCTIONAL|UNKNOWN"
+}
+
+Issue category guidance:
+- TECHNICAL: code bugs, runtime errors, crashes, API failures, database errors, missing dependencies, configuration errors — issues that require code changes
+- FUNCTIONAL: user followed wrong process, misunderstood a feature, data entry error, permission confusion, workflow questions — issues that need guidance, not code changes
+- UNKNOWN: cannot determine from the information provided`;
 
     const response = await this.client.generateContent(prompt, false);
     const jsonStr = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();

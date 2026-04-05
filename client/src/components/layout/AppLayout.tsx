@@ -4,8 +4,10 @@ import { useAuth } from '../../hooks/useAuth';
 import {
   LayoutDashboard, Ticket, MessageSquare, AlertTriangle, Settings, LogOut,
   FolderOpen, UserCircle, Building2, DollarSign, Activity, Plug, Bot, Database,
-  Menu, X, Search, ChevronLeft, Bell, ChevronRight, Zap,
+  Menu, X, Search, ChevronLeft, Bell, ChevronRight, Zap, BookOpen, ClipboardList,
+  Check,
 } from 'lucide-react';
+import { api } from '../../services/api';
 
 interface NavItem {
   to: string;
@@ -25,6 +27,7 @@ const navSections: NavSection[] = [
     title: '',
     items: [
       { to: '/', icon: LayoutDashboard, label: 'Dashboard', end: true },
+      { to: '/my-tasks', icon: ClipboardList, label: 'My Tasks' },
     ],
   },
   {
@@ -49,6 +52,8 @@ const navSections: NavSection[] = [
     items: [
       { to: '/chatbot', icon: Bot, label: 'Chatbot', adminOnly: true },
       { to: '/integrations', icon: Plug, label: 'Integrations', adminOnly: true },
+      { to: '/agent-config', icon: Bot, label: 'Agent Config', adminOnly: true },
+      { to: '/knowledge-base', icon: BookOpen, label: 'Knowledge Base', adminOnly: true },
       { to: '/pipeline', icon: Zap, label: 'Auto-Fix', adminOnly: true },
       { to: '/db-connect', icon: Database, label: 'Databases', adminOnly: true },
       { to: '/error-logs', icon: AlertTriangle, label: 'Error Logs', adminOnly: true },
@@ -60,6 +65,7 @@ const navSections: NavSection[] = [
 // All searchable pages for quick nav
 const searchablePages = [
   { label: 'Dashboard', path: '/', keywords: 'home overview stats' },
+  { label: 'My Tasks', path: '/my-tasks', keywords: 'tasks assigned me todo' },
   { label: 'Tickets', path: '/tickets', keywords: 'support issues bugs' },
   { label: 'AI Assistant', path: '/chat', keywords: 'chat bot ai help' },
   { label: 'Projects', path: '/projects', keywords: 'project team' },
@@ -70,6 +76,8 @@ const searchablePages = [
   { label: 'Chatbot Config', path: '/chatbot', keywords: 'widget bot configure' },
   { label: 'Integrations', path: '/integrations', keywords: 'api keys sdk connect' },
   { label: 'Databases', path: '/db-connect', keywords: 'sql database connection query' },
+  { label: 'Agent Config', path: '/agent-config', keywords: 'agent config technical functional orchestrator' },
+  { label: 'Knowledge Base', path: '/knowledge-base', keywords: 'documents upload pdf knowledge base' },
   { label: 'Error Logs', path: '/error-logs', keywords: 'errors monitoring logs' },
   { label: 'Settings', path: '/settings', keywords: 'email team users config' },
 ];
@@ -84,6 +92,11 @@ export function AppLayout() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [notifLoading, setNotifLoading] = useState(false);
+  const notifRef = useRef<HTMLDivElement>(null);
 
   // Close mobile sidebar on navigation
   useEffect(() => { setMobileOpen(false); }, [location.pathname]);
@@ -104,6 +117,51 @@ export function AppLayout() {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, []);
+
+  // Fetch unread notification count on mount
+  useEffect(() => {
+    api.getUnreadCount().then((data: any) => setUnreadCount(data.count || 0)).catch(() => {});
+  }, [location.pathname]);
+
+  // Close notification dropdown when clicking outside
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) setNotifOpen(false);
+    };
+    if (notifOpen) document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [notifOpen]);
+
+  const openNotifications = () => {
+    setNotifOpen(!notifOpen);
+    if (!notifOpen) {
+      setNotifLoading(true);
+      api.getNotifications().then((data: any) => setNotifications(data.notifications || data || [])).catch(() => setNotifications([])).finally(() => setNotifLoading(false));
+    }
+  };
+
+  const markRead = (id: string, link?: string) => {
+    api.markNotificationRead(id).catch(() => {});
+    setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
+    setUnreadCount((c) => Math.max(0, c - 1));
+    if (link) { navigate(link); setNotifOpen(false); }
+  };
+
+  const markAllRead = () => {
+    api.markAllNotificationsRead().catch(() => {});
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    setUnreadCount(0);
+  };
+
+  const timeAgo = (date: string) => {
+    const diff = Date.now() - new Date(date).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.floor(hrs / 24)}d ago`;
+  };
 
   const handleLogout = () => { logout(); navigate('/login'); };
 
@@ -272,11 +330,48 @@ export function AppLayout() {
             <kbd className="hidden md:inline text-[10px] bg-white px-1.5 py-0.5 rounded border border-gray-200 font-mono text-gray-400">Ctrl+K</kbd>
           </button>
 
-          {/* Notifications placeholder */}
-          <button className="p-2 text-gray-400 hover:text-gray-600 relative">
-            <Bell className="w-5 h-5" />
-            <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-blue-600 rounded-full" />
-          </button>
+          {/* Notifications */}
+          <div className="relative" ref={notifRef}>
+            <button onClick={openNotifications} className="p-2 text-gray-400 hover:text-gray-600 relative">
+              <Bell className="w-5 h-5" />
+              {unreadCount > 0 && (
+                <span className="absolute top-0.5 right-0.5 min-w-[18px] h-[18px] bg-blue-600 rounded-full flex items-center justify-center">
+                  <span className="text-white text-[10px] font-bold leading-none">{unreadCount > 99 ? '99+' : unreadCount}</span>
+                </span>
+              )}
+            </button>
+            {notifOpen && (
+              <div className="absolute right-0 top-full mt-1 w-80 sm:w-96 bg-white rounded-xl shadow-2xl border border-gray-200 z-50 overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                  <h3 className="font-semibold text-sm text-gray-900">Notifications</h3>
+                  {unreadCount > 0 && (
+                    <button onClick={markAllRead} className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1">
+                      <Check className="w-3 h-3" /> Mark all read
+                    </button>
+                  )}
+                </div>
+                <div className="max-h-80 overflow-y-auto">
+                  {notifLoading ? (
+                    <div className="p-6 text-center text-sm text-gray-400">Loading...</div>
+                  ) : notifications.length === 0 ? (
+                    <div className="p-6 text-center text-sm text-gray-400">No notifications</div>
+                  ) : (
+                    notifications.slice(0, 20).map((n) => (
+                      <button key={n.id} onClick={() => markRead(n.id, n.link)}
+                        className={`w-full text-left px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors flex gap-3 ${!n.read ? 'bg-blue-50/30' : ''}`}>
+                        {!n.read && <span className="w-2 h-2 mt-1.5 bg-blue-600 rounded-full flex-shrink-0" />}
+                        <div className={`flex-1 min-w-0 ${n.read ? 'ml-5' : ''}`}>
+                          <div className="text-sm font-medium text-gray-900 truncate">{n.title}</div>
+                          {n.message && <div className="text-xs text-gray-500 mt-0.5 truncate">{n.message}</div>}
+                          <div className="text-[10px] text-gray-400 mt-1">{timeAgo(n.createdAt)}</div>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* User avatar (mobile) */}
           <div className="w-8 h-8 rounded-full bg-gray-900 flex items-center justify-center lg:hidden">

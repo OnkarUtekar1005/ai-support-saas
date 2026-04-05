@@ -123,6 +123,8 @@ export const api = {
   getPipeline: (id: string) => request(`/pipeline/${id}`),
   triggerPipeline: (data: any) => request('/pipeline/trigger', { method: 'POST', body: JSON.stringify(data) }),
   approvePipeline: (id: string) => request(`/pipeline/${id}/approve`, { method: 'POST' }),
+  retryPipeline: (id: string) => request(`/pipeline/${id}/retry`, { method: 'POST' }),
+  deletePipeline: (id: string) => request(`/pipeline/${id}`, { method: 'DELETE' }),
   rejectPipeline: (id: string, reason?: string) => request(`/pipeline/${id}/reject`, { method: 'POST', body: JSON.stringify({ reason }) }),
   getVpsAgents: () => request('/pipeline/agents/list'),
   createVpsAgent: (data: any) => request('/pipeline/agents', { method: 'POST', body: JSON.stringify(data) }),
@@ -140,6 +142,49 @@ export const api = {
   createActivity: (data: any) => request('/activities', { method: 'POST', body: JSON.stringify(data) }),
   updateActivity: (id: string, data: any) => request(`/activities/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteActivity: (id: string) => request(`/activities/${id}`, { method: 'DELETE' }),
+
+  // ─── Agent Config ───
+  getAgentConfig: (projectId: string) => request(`/agent-config/${projectId}`),
+  saveAgentConfigTechnical: (projectId: string, data: any) =>
+    request(`/agent-config/${projectId}/technical`, { method: 'PUT', body: JSON.stringify(data) }),
+  saveAgentConfigFunctional: (projectId: string, data: any) =>
+    request(`/agent-config/${projectId}/functional`, { method: 'PUT', body: JSON.stringify(data) }),
+
+  // ─── Documents / Knowledge Base ───
+  getDocuments: (projectId: string) => request(`/documents/${projectId}`),
+  uploadDocument: async (projectId: string, file: File) => {
+    const token = localStorage.getItem('token');
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch(`${API_BASE}/documents/${projectId}/upload`, {
+      method: 'POST',
+      headers: { ...(token && { Authorization: `Bearer ${token}` }) },
+      body: formData,
+    });
+    if (!res.ok) throw new Error('Upload failed');
+    return res.json();
+  },
+  deleteDocument: (id: string) => request(`/documents/${id}`, { method: 'DELETE' }),
+
+  // ─── Functional Agent ───
+  resolveFunctional: (data: { ticketId?: string; query: string; projectId: string }) =>
+    request('/functional-agent/resolve', { method: 'POST', body: JSON.stringify(data) }),
+  getFunctionalResolutions: (projectId: string) => request(`/functional-agent/resolutions/${projectId}`),
+  submitResolutionFeedback: (id: string, feedback: string) =>
+    request(`/functional-agent/resolution/${id}/feedback`, { method: 'POST', body: JSON.stringify({ feedback }) }),
+
+  // ─── Notifications ───
+  getNotifications: () => request('/notifications'),
+  getUnreadCount: () => request('/notifications/unread-count'),
+  markNotificationRead: (id: string) => request(`/notifications/${id}/read`, { method: 'PATCH' }),
+  markAllNotificationsRead: () => request('/notifications/read-all', { method: 'PATCH' }),
+
+  // ─── Reminder Config ───
+  getReminderConfig: (projectId: string) => request(`/reminder-config/${projectId}`),
+  saveReminderConfig: (projectId: string, data: any) => request(`/reminder-config/${projectId}`, { method: 'PUT', body: JSON.stringify(data) }),
+
+  // ─── Ticket Assignment ───
+  assignTicket: (ticketId: string, assigneeId: string) => request(`/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify({ assigneeId }) }),
 
   // Helper
   _post: (path: string, data: any) =>

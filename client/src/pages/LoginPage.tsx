@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { Eye, EyeOff } from 'lucide-react';
 
 export function LoginPage() {
   const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -24,7 +26,7 @@ export function LoginPage() {
 
   return (
     <div className="min-h-screen flex bg-white">
-      {/* Left — Branding */}
+      {/* Left branding */}
       <div className="hidden lg:flex lg:w-1/2 bg-gray-950 items-center justify-center p-12">
         <div className="max-w-md">
           <div className="flex items-center gap-3 mb-8">
@@ -38,14 +40,14 @@ export function LoginPage() {
           </div>
           <h2 className="text-3xl font-bold text-white leading-tight">AI-Powered Support & CRM Platform</h2>
           <p className="text-gray-400 mt-4 leading-relaxed">
-            Manage tickets, track deals, monitor errors, and connect AI chatbots to your applications — all from one platform.
+            Manage tickets, track deals, monitor errors, and connect AI chatbots to your applications -- all from one platform.
           </p>
         </div>
       </div>
 
-      {/* Right — Form */}
+      {/* Right form */}
       <div className="flex-1 flex items-center justify-center p-8">
-        <div className="w-full max-w-sm">
+        <div className="w-full max-w-sm animate-page-in">
           <div className="lg:hidden flex items-center gap-2 mb-8">
             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
               <span className="text-white font-black text-sm">T</span>
@@ -58,17 +60,32 @@ export function LoginPage() {
 
           <form onSubmit={handleSubmit} className="mt-8 space-y-4">
             {error && (
-              <div className="bg-red-50 text-red-700 px-4 py-2.5 rounded-lg text-sm border border-red-200">{error}</div>
+              <div className="bg-red-50 text-red-700 px-4 py-2.5 rounded-lg text-sm border border-red-200 animate-fade-in">
+                {error}
+              </div>
             )}
             <div>
               <label className="block text-sm font-medium text-gray-900 mb-1.5">Email</label>
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="input-field" required />
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="input-field" required placeholder="you@company.com" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-900 mb-1.5">Password</label>
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="input-field" required />
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="input-field pr-10"
+                  required
+                />
+                <button type="button" onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors">
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
-            <button type="submit" disabled={loading} className="btn-primary w-full">
+            <button type="submit" disabled={loading} className="btn-primary w-full flex items-center justify-center gap-2">
+              {loading && <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />}
               {loading ? 'Signing in...' : 'Sign In'}
             </button>
           </form>

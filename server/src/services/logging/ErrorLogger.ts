@@ -1,7 +1,7 @@
 import winston from 'winston';
-import { prisma } from '../../utils/prisma';
+import { ErrorIngestionService, ErrorInput, ErrorEntry, OrgStats, FingerprintSummary } from './ErrorIngestionService';
+import { ErrorLogWriter } from './ErrorLogWriter';
 import { GeminiLogAnalyzer } from '../ai/GeminiLogAnalyzer';
-import { EmailService } from '../email/EmailService';
 
 interface ErrorLogInput {
   level: 'INFO' | 'WARN' | 'ERROR' | 'FATAL';
@@ -14,9 +14,14 @@ interface ErrorLogInput {
   projectId?: string;
   organizationId?: string;
   requestData?: any;
+  language?: string;
+  framework?: string;
+  environment?: string;
+  hostname?: string;
+  metadata?: any;
 }
 
-// Winston logger for file/console output
+// Winston logger for file/console output (kept for backward compat + server-side logging)
 const winstonLogger = winston.createLogger({
   level: 'info',
   format: winston.format.combine(
@@ -36,161 +41,115 @@ const winstonLogger = winston.createLogger({
 export class ErrorLogger {
   /**
    * Log an error to:
-   * 1. Winston (file/console)
-   * 2. Database (ErrorLog table)
-   * 3. Gemini AI (for analysis)
-   * 4. Email (admin notification)
+   * 1. Winston (file/console) — immediate
+   * 2. ErrorIngestionService (structured log file + memory + Gemini dedup)
+   *
+   * NO database writes — errors live in log files + memory.
    */
   static async logError(input: ErrorLogInput): Promise<string | null> {
-    // 1. Log to winston immediately
+    // 1. Log to Winston immediately (server-side visibility)
     winstonLogger.log(input.level.toLowerCase(), input.message, {
       source: input.source,
       endpoint: input.endpoint,
       stack: input.stack,
     });
 
-    // If no org context, just log to winston
-    if (!input.organizationId) {
-      return null;
-    }
-
-    try {
-      // 2. Save to database
-      const errorLog = await prisma.errorLog.create({
-        data: {
-          level: input.level,
-          message: input.message,
-          stack: input.stack,
-          source: input.source,
-          category: input.category,
-          endpoint: input.endpoint,
-          userId: input.userId,
-          projectId: input.projectId,
-          requestData: input.requestData || undefined,
-          organizationId: input.organizationId,
-        },
-      });
-
-      // 3. For ERROR and FATAL, trigger Gemini analysis (async, don't block)
-      if (input.level === 'ERROR' || input.level === 'FATAL') {
-        ErrorLogger.analyzeAndNotify(errorLog.id, input).catch((err) => {
-          winstonLogger.error('Failed to analyze error with Gemini', { error: err.message });
-        });
-      }
-
-      return errorLog.id;
-    } catch (dbErr) {
-      winstonLogger.error('Failed to save error to database', { error: (dbErr as Error).message });
-      return null;
-    }
-  }
-
-  /**
-   * Analyze the error with Gemini AI and send email notification
-   */
-  private static async analyzeAndNotify(errorLogId: string, input: ErrorLogInput) {
-    // Get AI analysis
-    const analysis = await GeminiLogAnalyzer.analyzeError({
+    // 2. Route to ErrorIngestionService (file + memory + Gemini + email)
+    const ingestion = ErrorIngestionService.getInstance();
+    const result = ingestion.ingest({
+      level: input.level,
       message: input.message,
       stack: input.stack,
       source: input.source,
+      category: input.category,
       endpoint: input.endpoint,
+      userId: input.userId,
+      projectId: input.projectId,
+      organizationId: input.organizationId,
+      language: input.language,
+      framework: input.framework,
+      environment: input.environment,
+      hostname: input.hostname,
+      metadata: input.metadata || input.requestData,
     });
 
-    // Update the error log with AI analysis
-    await prisma.errorLog.update({
-      where: { id: errorLogId },
-      data: {
-        aiAnalysis: analysis.rootCause,
-        aiSuggestion: analysis.suggestion,
-        analyzed: true,
-      },
-    });
-
-    // Send email notification to admin team
-    if (input.organizationId) {
-      const emailSettings = await prisma.emailSettings.findUnique({
-        where: { organizationId: input.organizationId },
-      });
-
-      const shouldNotify =
-        emailSettings &&
-        ((input.level === 'ERROR' && emailSettings.notifyOnError) ||
-          (input.level === 'FATAL' && emailSettings.notifyOnFatal));
-
-      if (shouldNotify && emailSettings.adminEmails.length > 0) {
-        await EmailService.sendErrorAlert({
-          to: emailSettings.adminEmails,
-          errorMessage: input.message,
-          source: input.source,
-          endpoint: input.endpoint,
-          aiAnalysis: analysis.rootCause,
-          aiSuggestion: analysis.suggestion,
-          level: input.level,
-          timestamp: new Date().toISOString(),
-          smtpConfig: emailSettings,
-        });
-
-        await prisma.errorLog.update({
-          where: { id: errorLogId },
-          data: { emailSent: true },
-        });
-      }
-    }
+    // Return fingerprint as the "ID" (replaces the DB errorLog.id)
+    return result.fingerprint;
   }
 
   /**
-   * Get recent error logs for an organization (admin dashboard)
+   * Get recent error logs for an organization (dashboard).
+   * Reads from in-memory buffer, not DB.
    */
   static async getErrorLogs(
     organizationId: string,
     options: { page?: number; limit?: number; level?: string; analyzed?: boolean; projectId?: string; category?: string }
   ) {
-    const { page = 1, limit = 50, level, analyzed, projectId, category } = options;
+    const { page = 1, limit = 50, level, category } = options;
+    const ingestion = ErrorIngestionService.getInstance();
 
-    const where: any = { organizationId };
-    if (level) where.level = level;
-    if (analyzed !== undefined) where.analyzed = analyzed;
-    if (projectId) where.projectId = projectId;
-    if (category) where.category = category;
+    let logs = ingestion.getRecentErrors(organizationId, 1000);
 
-    const [logs, total] = await Promise.all([
-      prisma.errorLog.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
-        include: {
-          project: { select: { id: true, name: true, color: true } },
-        },
-      }),
-      prisma.errorLog.count({ where }),
-    ]);
+    // Apply filters
+    if (level) logs = logs.filter(e => e.level === level);
+    if (category) logs = logs.filter(e => e.category === category);
+    if (options.projectId) logs = logs.filter(e => e.projectId === options.projectId);
+    if (options.analyzed !== undefined) logs = logs.filter(e => e.analyzed === options.analyzed);
 
-    return { logs, total, page, totalPages: Math.ceil(total / limit) };
+    const total = logs.length;
+    const paged = logs.slice((page - 1) * limit, page * limit);
+
+    return { logs: paged, total, page, totalPages: Math.ceil(total / limit) };
   }
 
   /**
-   * Re-analyze a specific error log with Gemini
+   * Get error stats for dashboard.
    */
-  static async reanalyzeError(errorLogId: string) {
-    const errorLog = await prisma.errorLog.findUnique({ where: { id: errorLogId } });
-    if (!errorLog) throw new Error('Error log not found');
+  static getStats(organizationId: string): OrgStats {
+    return ErrorIngestionService.getInstance().getStats(organizationId);
+  }
+
+  /**
+   * Get fingerprint summaries (grouped errors).
+   */
+  static getFingerprintSummary(organizationId: string): FingerprintSummary[] {
+    return ErrorIngestionService.getInstance().getFingerprintSummary(organizationId);
+  }
+
+  /**
+   * Re-analyze a specific fingerprint with Gemini.
+   */
+  static async reanalyzeError(fingerprint: string) {
+    const ingestion = ErrorIngestionService.getInstance();
+    const entry = ingestion.getFingerprintDetail(fingerprint);
+    if (!entry) throw new Error('Error fingerprint not found');
 
     const analysis = await GeminiLogAnalyzer.analyzeError({
-      message: errorLog.message,
-      stack: errorLog.stack || undefined,
-      source: errorLog.source,
-      endpoint: errorLog.endpoint || undefined,
+      message: entry.message,
+      stack: entry.stack,
+      source: entry.source,
+      endpoint: entry.endpoint,
     });
 
-    return prisma.errorLog.update({
-      where: { id: errorLogId },
-      data: {
-        aiAnalysis: analysis.rootCause,
-        aiSuggestion: analysis.suggestion,
-        analyzed: true,
-      },
-    });
+    // Update in-memory cache
+    entry.analyzed = true;
+    entry.aiAnalysis = analysis.rootCause;
+    entry.aiSuggestion = analysis.suggestion;
+
+    return {
+      fingerprint: entry.fingerprint,
+      message: entry.message,
+      source: entry.source,
+      aiAnalysis: analysis.rootCause,
+      aiSuggestion: analysis.suggestion,
+      analyzed: true,
+    };
+  }
+
+  /**
+   * Read errors from log files for trend analysis.
+   */
+  static async getLogEntries(organizationId: string, hours: number) {
+    return ErrorLogWriter.readRecentLogs(organizationId, hours);
   }
 }

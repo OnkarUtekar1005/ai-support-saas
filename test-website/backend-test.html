@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Backend Error Test — Orchestrator Agent</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; }
+    nav { background: #1e293b; border-bottom: 1px solid #334155; padding: 14px 32px; display: flex; align-items: center; justify-content: space-between; }
+    nav .logo { font-size: 18px; font-weight: 700; color: #f1f5f9; }
+    nav .logo span { color: #22d3ee; }
+    nav .links { display: flex; gap: 20px; }
+    nav .links a { text-decoration: none; color: #94a3b8; font-size: 13px; font-weight: 500; }
+    nav .links a:hover { color: #e2e8f0; }
+    .container { max-width: 1000px; margin: 0 auto; padding: 32px 20px; }
+    h1 { font-size: 28px; font-weight: 800; color: #f1f5f9; margin-bottom: 4px; }
+    h1 span { color: #22d3ee; }
+    .subtitle { font-size: 14px; color: #94a3b8; margin-bottom: 24px; }
+    h2 { font-size: 16px; font-weight: 700; color: #f1f5f9; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 20px; margin-bottom: 16px; }
+    .card p { font-size: 13px; color: #94a3b8; line-height: 1.6; margin-bottom: 12px; }
+    .btn { border: none; padding: 9px 18px; border-radius: 7px; cursor: pointer; font-size: 13px; font-weight: 600; transition: all 0.15s; display: inline-flex; align-items: center; gap: 6px; }
+    .btn:active { transform: scale(0.97); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-red { background: #ef4444; color: white; }
+    .btn-red:hover:not(:disabled) { background: #dc2626; }
+    .btn-amber { background: #f59e0b; color: white; }
+    .btn-amber:hover:not(:disabled) { background: #d97706; }
+    .btn-cyan { background: #06b6d4; color: white; }
+    .btn-cyan:hover:not(:disabled) { background: #0891b2; }
+    .btn-purple { background: #7c3aed; color: white; }
+    .btn-purple:hover:not(:disabled) { background: #6d28d9; }
+    .btn-green { background: #10b981; color: white; }
+    .btn-green:hover:not(:disabled) { background: #059669; }
+    .btn-gray { background: #334155; color: #cbd5e1; border: 1px solid #475569; }
+    .btn-gray:hover:not(:disabled) { background: #475569; }
+    .btn-group { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    select { background: #334155; color: #e2e8f0; border: 1px solid #475569; padding: 8px 12px; border-radius: 7px; font-size: 13px; min-width: 200px; }
+    select:focus { outline: none; border-color: #22d3ee; }
+    .log { font-family: 'SF Mono', Monaco, Consolas, monospace; font-size: 12px; background: #020617; color: #22d3ee; padding: 14px 16px; border-radius: 8px; margin-top: 12px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; border: 1px solid #1e293b; }
+    .log .error { color: #f87171; }
+    .log .success { color: #34d399; }
+    .log .info { color: #60a5fa; }
+    .log .warn { color: #fbbf24; }
+    .tag { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; }
+    .tag-red { background: rgba(239,68,68,0.15); color: #f87171; }
+    .tag-green { background: rgba(16,185,129,0.15); color: #34d399; }
+    .tag-cyan { background: rgba(6,182,212,0.15); color: #22d3ee; }
+    .tag-amber { background: rgba(245,158,11,0.15); color: #fbbf24; }
+    .divider { height: 1px; background: #334155; margin: 24px 0; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .stat { background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 16px; text-align: center; }
+    .stat .num { font-size: 32px; font-weight: 800; color: #22d3ee; }
+    .stat .label { font-size: 12px; color: #64748b; margin-top: 4px; }
+    .pipeline-stage { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; margin: 2px; }
+    .flow-diagram { background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 16px; margin: 12px 0; font-family: monospace; font-size: 12px; color: #94a3b8; line-height: 1.8; }
+    .flow-diagram .highlight { color: #22d3ee; font-weight: bold; }
+    .flow-diagram .arrow { color: #475569; }
+    footer { text-align: center; padding: 32px; color: #475569; font-size: 12px; }
+    @media (max-width: 640px) { .grid-2 { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <div class="logo">Orchestrator <span>Test</span></div>
+    <div class="links">
+      <a href="/test/">Frontend Test</a>
+      <a href="/test/backend-test.html">Backend Test</a>
+      <a href="http://localhost:5173/error-logs" target="_blank">CRM Error Logs</a>
+      <a href="http://localhost:5173/pipeline" target="_blank">CRM Pipeline</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <h1>Backend <span>Error Test</span></h1>
+    <p class="subtitle">Trigger real server-side errors to test the Orchestrator Agent auto-fix pipeline. Errors go through: ErrorLogger → Gemini Analysis → Orchestrator → Claude Code → PR.</p>
+
+    <!-- ═══════ CONFIG ═══════ -->
+    <div class="card">
+      <h2>Configuration</h2>
+      <p>Select which organization and project to log errors against. The orchestrator will only auto-trigger if the project has AutoFixConfig enabled.</p>
+      <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+        <div>
+          <label style="font-size:12px;color:#64748b;display:block;margin-bottom:4px;">Organization</label>
+          <select id="org-select"><option value="">Loading...</option></select>
+        </div>
+        <div>
+          <label style="font-size:12px;color:#64748b;display:block;margin-bottom:4px;">Project</label>
+          <select id="project-select"><option value="">Select org first</option></select>
+        </div>
+        <div style="padding-top: 18px;">
+          <button class="btn btn-gray" onclick="loadContext()">Refresh</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════ ERROR FLOW ═══════ -->
+    <div class="card">
+      <h2>How Backend Errors Flow</h2>
+      <div class="flow-diagram">
+<span class="highlight">POST /api/test-errors/*</span> <span class="arrow">→</span> ErrorLogger.logError() <span class="arrow">→</span> PostgreSQL <span class="highlight">INSERT ErrorLog</span>
+        <span class="arrow">│</span>
+        <span class="arrow">├──→</span> Winston logs to file <span class="arrow">(immediate)</span>
+        <span class="arrow">├──→</span> Gemini AI Analysis <span class="arrow">(async)</span> <span class="arrow">→</span> UPDATE ErrorLog.aiAnalysis
+        <span class="arrow">├──→</span> Email notification <span class="arrow">(async, if configured)</span>
+        <span class="arrow">│</span>
+        <span class="arrow">└──→</span> <span class="highlight">PG NOTIFY 'error_analyzed'</span> <span class="arrow">→</span> Orchestrator DB Listener
+              <span class="arrow">│</span>
+              <span class="arrow">├──→</span> AutoTriggerService.evaluate() <span class="arrow">(dedup, severity, cooldown)</span>
+              <span class="arrow">├──→</span> WorkerPool.submitAnalysis() <span class="arrow">(max 5 workers)</span>
+              <span class="arrow">├──→</span> ClaudeCodeRunner <span class="arrow">(focused prompt + cached context)</span>
+              <span class="arrow">├──→</span> Status: <span class="highlight">AWAITING_APPROVAL</span>
+              <span class="arrow">│</span>
+              <span class="arrow">└──→</span> Admin approves <span class="arrow">→</span> <span class="highlight">PG NOTIFY 'pipeline_status'</span>
+                    <span class="arrow">│</span>
+                    <span class="arrow">├──→</span> Git worktree <span class="arrow">→</span> Claude Code fix <span class="arrow">→</span> Tests
+                    <span class="arrow">└──→</span> Commit <span class="arrow">→</span> Push <span class="arrow">→</span> <span class="highlight">GitHub PR Created</span>
+      </div>
+    </div>
+
+    <!-- ═══════ TRIGGER ERRORS ═══════ -->
+    <div class="card">
+      <h2>Trigger Backend Errors</h2>
+      <p>Each button sends a POST to the server, which creates a real ErrorLog entry with stack trace. If the orchestrator is running and the project has auto-fix enabled, it will auto-trigger a pipeline.</p>
+
+      <div class="grid-2">
+        <div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:6px;">ERROR Level (triggers orchestrator)</div>
+          <div class="btn-group">
+            <button class="btn btn-red" onclick="trigger('db-error')">Database Error</button>
+            <button class="btn btn-red" onclick="trigger('null-ref')">Null Reference</button>
+            <button class="btn btn-red" onclick="trigger('auth-error')">Auth/JWT Error</button>
+            <button class="btn btn-red" onclick="trigger('api-timeout')">API Timeout</button>
+            <button class="btn btn-red" onclick="trigger('unhandled-rejection')">Cache ECONNREFUSED</button>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:6px;">FATAL + WARN (different behavior)</div>
+          <div class="btn-group">
+            <button class="btn btn-purple" onclick="trigger('fatal-error')">FATAL: DB Pool Exhausted</button>
+            <button class="btn btn-amber" onclick="trigger('validation-error')">WARN: Validation</button>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top: 16px;">
+        <button class="btn btn-cyan" onclick="triggerBurst(3)">Burst: 3 errors (test dedup)</button>
+        <button class="btn btn-cyan" onclick="triggerBurst(6)" style="margin-left:8px;">Burst: 6 errors (test queue)</button>
+      </div>
+
+      <div id="trigger-log" class="log" style="min-height:100px;"></div>
+    </div>
+
+    <!-- ═══════ ORCHESTRATOR STATUS ═══════ -->
+    <div class="card">
+      <h2>Orchestrator Status</h2>
+      <p>Check the orchestrator's current state — active workers, queued pipelines, and recent results.</p>
+
+      <div class="grid-2" id="orch-stats" style="margin-bottom: 12px;">
+        <div class="stat"><div class="num" id="stat-active">-</div><div class="label">Active Workers</div></div>
+        <div class="stat"><div class="num" id="stat-queued">-</div><div class="label">Queued</div></div>
+        <div class="stat"><div class="num" id="stat-resolved">-</div><div class="label">Resolved</div></div>
+        <div class="stat"><div class="num" id="stat-failed">-</div><div class="label">Failed</div></div>
+      </div>
+
+      <button class="btn btn-gray" onclick="checkOrchStatus()">Refresh Status</button>
+      <span id="orch-status-msg" style="font-size:12px;color:#64748b;margin-left:12px;"></span>
+    </div>
+
+    <!-- ═══════ RECENT PIPELINES ═══════ -->
+    <div class="card">
+      <h2>Recent Pipelines</h2>
+      <div id="pipelines-list" style="font-size:13px;color:#94a3b8;">Click "Refresh" to load...</div>
+      <button class="btn btn-gray" onclick="loadPipelines()" style="margin-top:12px;">Refresh Pipelines</button>
+    </div>
+
+    <!-- ═══════ RECENT ERROR LOGS ═══════ -->
+    <div class="card">
+      <h2>Recent Error Logs</h2>
+      <div id="errors-list" style="font-size:13px;color:#94a3b8;">Click "Refresh" to load...</div>
+      <button class="btn btn-gray" onclick="loadErrors()" style="margin-top:12px;">Refresh Errors</button>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- ═══════ SETUP GUIDE ═══════ -->
+    <div class="card">
+      <h2>Setup Checklist</h2>
+      <div id="setup-checks" style="font-size:13px;"></div>
+      <button class="btn btn-gray" onclick="runSetupChecks()" style="margin-top:12px;">Run Checks</button>
+    </div>
+  </div>
+
+  <footer>Orchestrator Agent — Backend Error Test Page</footer>
+
+  <script>
+    var CRM_URL = 'http://localhost:3001';
+    var AUTH_TOKEN = ''; // Set after login
+    var selectedOrg = '';
+    var selectedProject = '';
+
+    // ─── Log helper ───
+    function log(msg, type) {
+      var el = document.getElementById('trigger-log');
+      var ts = new Date().toLocaleTimeString();
+      var cls = type || 'info';
+      el.innerHTML += '<span class="' + cls + '">[' + ts + '] ' + msg + '</span>\n';
+      el.scrollTop = el.scrollHeight;
+    }
+
+    // ─── Load context (orgs + projects) ───
+    function loadContext() {
+      fetch(CRM_URL + '/api/test-errors/context')
+        .then(function(r) { return r.json(); })
+        .then(function(orgs) {
+          var orgSel = document.getElementById('org-select');
+          orgSel.innerHTML = '<option value="">Select organization</option>';
+          orgs.forEach(function(org) {
+            orgSel.innerHTML += '<option value="' + org.id + '">' + org.name + '</option>';
+          });
+          window._orgs = orgs;
+        })
+        .catch(function() {
+          document.getElementById('org-select').innerHTML = '<option value="">Server not reachable</option>';
+        });
+    }
+
+    document.getElementById('org-select').addEventListener('change', function() {
+      selectedOrg = this.value;
+      var projSel = document.getElementById('project-select');
+      projSel.innerHTML = '<option value="">Select project</option>';
+      if (!selectedOrg || !window._orgs) return;
+      var org = window._orgs.find(function(o) { return o.id === selectedOrg; });
+      if (org) {
+        org.projects.forEach(function(p) {
+          projSel.innerHTML += '<option value="' + p.id + '">' + p.name + '</option>';
+        });
+      }
+    });
+
+    document.getElementById('project-select').addEventListener('change', function() {
+      selectedProject = this.value;
+    });
+
+    // ─── Trigger error ───
+    function trigger(type) {
+      log('Triggering: ' + type + '...', 'info');
+      fetch(CRM_URL + '/api/test-errors/' + type, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          organizationId: selectedOrg || undefined,
+          projectId: selectedProject || undefined
+        })
+      })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (d.triggered) {
+            log('Error logged: ' + d.type + ' → ID: ' + (d.errorId || 'N/A'), 'success');
+            log('  Message: ' + d.message, 'warn');
+            log('  → Check CRM Error Logs + watch orchestrator logs', 'info');
+          } else {
+            log('Failed: ' + JSON.stringify(d), 'error');
+          }
+        })
+        .catch(function(err) {
+          log('Request failed: ' + err.message, 'error');
+        });
+    }
+
+    // ─── Burst trigger (test dedup + queue) ───
+    function triggerBurst(count) {
+      var types = ['db-error', 'null-ref', 'auth-error', 'api-timeout', 'unhandled-rejection', 'fatal-error'];
+      log('Triggering burst of ' + count + ' errors...', 'info');
+      for (var i = 0; i < count; i++) {
+        (function(idx) {
+          setTimeout(function() {
+            trigger(types[idx % types.length]);
+          }, idx * 500);
+        })(i);
+      }
+    }
+
+    // ─── Orchestrator status ───
+    function checkOrchStatus() {
+      // Try the public status endpoint (needs auth — try without first)
+      fetch(CRM_URL + '/api/health')
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          document.getElementById('orch-status-msg').textContent = 'Server: ' + d.status + ' at ' + d.timestamp;
+        })
+        .catch(function() {
+          document.getElementById('orch-status-msg').textContent = 'Server not reachable';
+        });
+
+      // Try orchestrator status (needs JWT — show message if unauthorized)
+      if (AUTH_TOKEN) {
+        fetch(CRM_URL + '/api/orchestrator/status', {
+          headers: { 'Authorization': 'Bearer ' + AUTH_TOKEN }
+        })
+          .then(function(r) { return r.json(); })
+          .then(function(d) {
+            document.getElementById('stat-active').textContent = d.activePipelines || 0;
+            document.getElementById('stat-queued').textContent = d.queuedPipelines || 0;
+            document.getElementById('stat-resolved').textContent = d.totalResolved || 0;
+            document.getElementById('stat-failed').textContent = d.totalFailed || 0;
+          })
+          .catch(function() {});
+      } else {
+        document.getElementById('orch-status-msg').textContent += ' | Login below to see orchestrator stats';
+      }
+    }
+
+    // ─── Load recent pipelines ───
+    function loadPipelines() {
+      if (!AUTH_TOKEN) {
+        document.getElementById('pipelines-list').innerHTML = 'Login required — use the login form below';
+        return;
+      }
+      fetch(CRM_URL + '/api/pipeline', { headers: { 'Authorization': 'Bearer ' + AUTH_TOKEN } })
+        .then(function(r) { return r.json(); })
+        .then(function(pipelines) {
+          if (!pipelines.length) {
+            document.getElementById('pipelines-list').innerHTML = 'No pipelines yet. Trigger some errors above!';
+            return;
+          }
+          var html = pipelines.slice(0, 10).map(function(p) {
+            var statusColors = {
+              DETECTED: '#64748b', QUEUED: '#64748b', ANALYZING: '#3b82f6', FIX_PROPOSED: '#8b5cf6',
+              AWAITING_APPROVAL: '#f59e0b', APPROVED: '#10b981', FIXING: '#3b82f6', TESTING: '#06b6d4',
+              COMMITTED: '#10b981', PR_CREATED: '#22d3ee', DEPLOYED: '#10b981',
+              FAILED: '#ef4444', TEST_FAILED: '#ef4444', REJECTED: '#ef4444', REGRESSION: '#f59e0b'
+            };
+            var color = statusColors[p.status] || '#64748b';
+            return '<div style="padding:8px 0;border-bottom:1px solid #334155;display:flex;justify-content:space-between;align-items:center;">' +
+              '<div>' +
+                '<span style="background:' + color + '22;color:' + color + ';padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;">' + p.status + '</span> ' +
+                '<span style="color:#cbd5e1;margin-left:8px;">' + p.errorSource + '</span>' +
+                (p.autoTriggered ? ' <span style="color:#22d3ee;font-size:10px;">AUTO</span>' : '') +
+                (p.isRegression ? ' <span style="color:#f59e0b;font-size:10px;">REGRESSION</span>' : '') +
+              '</div>' +
+              '<div style="color:#64748b;font-size:11px;">' + new Date(p.createdAt).toLocaleString() + '</div>' +
+            '</div>';
+          }).join('');
+          document.getElementById('pipelines-list').innerHTML = html;
+        })
+        .catch(function(err) {
+          document.getElementById('pipelines-list').innerHTML = 'Error: ' + err.message;
+        });
+    }
+
+    // ─── Load recent errors ───
+    function loadErrors() {
+      if (!AUTH_TOKEN) {
+        document.getElementById('errors-list').innerHTML = 'Login required — use the login form below';
+        return;
+      }
+      fetch(CRM_URL + '/api/error-logs?limit=10', { headers: { 'Authorization': 'Bearer ' + AUTH_TOKEN } })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          var logs = data.logs || [];
+          if (!logs.length) {
+            document.getElementById('errors-list').innerHTML = 'No errors logged yet.';
+            return;
+          }
+          var html = logs.map(function(e) {
+            var levelColors = { FATAL: '#ef4444', ERROR: '#f87171', WARN: '#fbbf24', INFO: '#60a5fa' };
+            var color = levelColors[e.level] || '#64748b';
+            return '<div style="padding:8px 0;border-bottom:1px solid #334155;">' +
+              '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+                '<div>' +
+                  '<span style="background:' + color + '22;color:' + color + ';padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;">' + e.level + '</span> ' +
+                  '<span style="color:#cbd5e1;margin-left:8px;">' + e.source + '</span>' +
+                  (e.analyzed ? ' <span style="color:#22d3ee;font-size:10px;">AI ANALYZED</span>' : '') +
+                  (e.fingerprint ? ' <span style="color:#64748b;font-size:10px;">FP:' + e.fingerprint.substring(0,8) + '</span>' : '') +
+                '</div>' +
+                '<div style="color:#64748b;font-size:11px;">' + new Date(e.createdAt).toLocaleString() + '</div>' +
+              '</div>' +
+              '<div style="color:#94a3b8;font-size:12px;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + e.message.substring(0, 120) + '</div>' +
+            '</div>';
+          }).join('');
+          document.getElementById('errors-list').innerHTML = html;
+        })
+        .catch(function(err) {
+          document.getElementById('errors-list').innerHTML = 'Error: ' + err.message;
+        });
+    }
+
+    // ─── Quick login ───
+    function quickLogin() {
+      var email = document.getElementById('login-email').value;
+      var password = document.getElementById('login-password').value;
+      fetch(CRM_URL + '/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email, password: password })
+      })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (d.token) {
+            AUTH_TOKEN = d.token;
+            document.getElementById('login-msg').textContent = 'Logged in as ' + d.user.name;
+            document.getElementById('login-msg').style.color = '#34d399';
+            checkOrchStatus();
+            loadPipelines();
+            loadErrors();
+          } else {
+            document.getElementById('login-msg').textContent = d.error || 'Login failed';
+            document.getElementById('login-msg').style.color = '#f87171';
+          }
+        })
+        .catch(function(err) {
+          document.getElementById('login-msg').textContent = err.message;
+          document.getElementById('login-msg').style.color = '#f87171';
+        });
+    }
+
+    // ─── Setup checks ───
+    function runSetupChecks() {
+      var el = document.getElementById('setup-checks');
+      var checks = [];
+
+      // 1. Server health
+      fetch(CRM_URL + '/api/health')
+        .then(function(r) { return r.json(); })
+        .then(function() { checks.push({ name: 'CRM Server', ok: true, detail: 'Running at ' + CRM_URL }); })
+        .catch(function() { checks.push({ name: 'CRM Server', ok: false, detail: 'Not reachable' }); })
+        .finally(function() {
+          // 2. Test errors endpoint
+          return fetch(CRM_URL + '/api/test-errors/context')
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+              checks.push({ name: 'Test Error Routes', ok: true, detail: d.length + ' orgs found' });
+              checks.push({ name: 'Organizations', ok: d.length > 0, detail: d.length > 0 ? d.map(function(o){return o.name;}).join(', ') : 'No orgs — run prisma db seed' });
+              var hasProjects = d.some(function(o) { return o.projects.length > 0; });
+              checks.push({ name: 'Projects', ok: hasProjects, detail: hasProjects ? 'Found' : 'No projects — create one in CRM' });
+            })
+            .catch(function() { checks.push({ name: 'Test Error Routes', ok: false, detail: 'Not available' }); });
+        })
+        .finally(function() {
+          // 3. DB triggers (can't check directly, just note)
+          checks.push({ name: 'DB Triggers', ok: null, detail: 'Run: cd server && npm run setup:triggers' });
+          checks.push({ name: 'Claude Code CLI', ok: null, detail: 'Verify: claude --version' });
+          checks.push({ name: 'AutoFixConfig', ok: null, detail: 'Configure via PUT /api/orchestrator/config/{projectId}' });
+
+          el.innerHTML = checks.map(function(c) {
+            var badge = c.ok === true ? '<span class="tag tag-green">OK</span>'
+              : c.ok === false ? '<span class="tag tag-red">FAIL</span>'
+              : '<span class="tag tag-amber">MANUAL</span>';
+            return '<div style="padding:6px 0;display:flex;align-items:center;gap:8px;">' +
+              badge + ' <b style="color:#e2e8f0;">' + c.name + '</b> — <span style="color:#94a3b8;">' + c.detail + '</span></div>';
+          }).join('');
+
+          // Add login form
+          el.innerHTML += '<div style="margin-top:16px;padding-top:16px;border-top:1px solid #334155;">' +
+            '<div style="font-size:12px;color:#64748b;margin-bottom:8px;">Quick Login (to view pipelines + orchestrator status)</div>' +
+            '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">' +
+              '<input id="login-email" type="email" value="admin@acme.com" placeholder="Email" style="background:#334155;color:#e2e8f0;border:1px solid #475569;padding:8px 12px;border-radius:7px;font-size:13px;width:200px;">' +
+              '<input id="login-password" type="password" value="admin123" placeholder="Password" style="background:#334155;color:#e2e8f0;border:1px solid #475569;padding:8px 12px;border-radius:7px;font-size:13px;width:140px;">' +
+              '<button class="btn btn-green" onclick="quickLogin()">Login</button>' +
+              '<span id="login-msg" style="font-size:12px;"></span>' +
+            '</div></div>';
+        });
+    }
+
+    // ─── Init ───
+    window.addEventListener('load', function() {
+      loadContext();
+      setTimeout(runSetupChecks, 1000);
+    });
+  </script>
+</body>
+</html>

@@ -19,6 +19,10 @@ import { IntegrationsPage } from './pages/IntegrationsPage';
 import { ChatbotConfigPage } from './pages/ChatbotConfigPage';
 import { DatabasesPage } from './pages/DatabasesPage';
 import { PipelinePage } from './pages/PipelinePage';
+import { AgentConfigPage } from './pages/AgentConfigPage';
+import { AgentConfigDetailPage } from './pages/AgentConfigDetailPage';
+import { KnowledgeBasePage } from './pages/KnowledgeBasePage';
+import { MyTasksPage } from './pages/MyTasksPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -44,6 +48,7 @@ export function App() {
       <Route path="/register" element={user ? <Navigate to="/" /> : <RegisterPage />} />
       <Route path="/" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
         <Route index element={<DashboardPage />} />
+        <Route path="my-tasks" element={<MyTasksPage />} />
         {/* Support */}
         <Route path="tickets" element={<TicketsPage />} />
         <Route path="tickets/:id" element={<TicketDetailPage />} />
@@ -60,6 +65,9 @@ export function App() {
         <Route path="integrations" element={<IntegrationsPage />} />
         <Route path="db-connect" element={<DatabasesPage />} />
         <Route path="pipeline" element={<PipelinePage />} />
+        <Route path="agent-config" element={<AgentConfigPage />} />
+        <Route path="agent-config/:id" element={<AgentConfigDetailPage />} />
+        <Route path="knowledge-base" element={<KnowledgeBasePage />} />
         <Route path="error-logs" element={<ErrorLogsPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../services/api';
+import { Pagination } from '../components/shared';
 import {
   Play, CheckCircle, XCircle, Clock, GitBranch, Server, ChevronDown, ChevronUp,
   RefreshCw, Plus, Trash2, Zap, AlertTriangle, Rocket, Eye, Copy, Check,
@@ -13,9 +14,12 @@ const STATUS_CONFIG: Record<string, { color: string; icon: any; label: string }>
   APPROVED: { color: 'bg-green-100 text-green-700', icon: CheckCircle, label: 'Approved' },
   FIXING: { color: 'bg-blue-100 text-blue-700', icon: Zap, label: 'Fixing...' },
   TESTING: { color: 'bg-blue-100 text-blue-700', icon: Play, label: 'Testing' },
-  COMMITTED: { color: 'bg-indigo-100 text-indigo-700', icon: GitBranch, label: 'Committed' },
+  COMMITTED: { color: 'bg-green-100 text-green-700', icon: CheckCircle, label: 'Fixed' },
+  PR_CREATED: { color: 'bg-indigo-100 text-indigo-700', icon: GitBranch, label: 'PR Created' },
   DEPLOYING: { color: 'bg-orange-100 text-orange-700', icon: Rocket, label: 'Deploying' },
   DEPLOYED: { color: 'bg-green-100 text-green-700', icon: CheckCircle, label: 'Deployed' },
+  TEST_FAILED: { color: 'bg-red-100 text-red-700', icon: XCircle, label: 'Tests Failed' },
+  REGRESSION: { color: 'bg-red-100 text-red-700', icon: AlertTriangle, label: 'Regression' },
   FAILED: { color: 'bg-red-100 text-red-700', icon: XCircle, label: 'Failed' },
   REJECTED: { color: 'bg-red-100 text-red-700', icon: XCircle, label: 'Rejected' },
 };
@@ -30,6 +34,7 @@ export function PipelinePage() {
   const [detail, setDetail] = useState<any>(null);
   const [showAddAgent, setShowAddAgent] = useState(false);
   const [copied, setCopied] = useState('');
+  const [page, setPage] = useState(1);
   const [agentForm, setAgentForm] = useState({
     name: '', host: '', projectPath: '', gitBranch: 'main',
     buildCommand: 'npm run build', restartCommand: 'pm2 restart all', projectId: '',
@@ -68,6 +73,19 @@ export function PipelinePage() {
     refresh();
   };
 
+  const retry = async (id: string) => {
+    await api.retryPipeline(id);
+    refresh();
+  };
+
+  const deletePipeline = async (id: string) => {
+    if (!confirm('Delete this pipeline log?')) return;
+    await api.deletePipeline(id);
+    setExpandedId(null);
+    setDetail(null);
+    refresh();
+  };
+
   const addAgent = async (e: React.FormEvent) => {
     e.preventDefault();
     const agent: any = await api.createVpsAgent({ ...agentForm, projectId: agentForm.projectId || null });
@@ -83,6 +101,10 @@ export function PipelinePage() {
     setCopied(label);
     setTimeout(() => setCopied(''), 2000);
   };
+
+  const PAGE_SIZE = 10;
+  const pagedPipelines = pipelines.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const pipelineTotalPages = Math.max(1, Math.ceil(pipelines.length / PAGE_SIZE));
 
   // Pipeline stage progress bar
   const stages = ['DETECTED', 'ANALYZING', 'FIX_PROPOSED', 'AWAITING_APPROVAL', 'APPROVED', 'FIXING', 'COMMITTED', 'DEPLOYING', 'DEPLOYED'];
@@ -130,8 +152,9 @@ export function PipelinePage() {
             <p className="text-sm">No pipelines yet. Trigger one from Error Logs → "Auto-Fix" button.</p>
           </div>
         ) : (
+          <>
           <div className="space-y-3">
-            {pipelines.map((p) => {
+            {pagedPipelines.map((p) => {
               const cfg = STATUS_CONFIG[p.status] || STATUS_CONFIG.DETECTED;
               const Icon = cfg.icon;
               const progress = getProgress(p.status);
@@ -257,22 +280,35 @@ export function PipelinePage() {
                       )}
 
                       {/* Action buttons */}
-                      {(p.status === 'FIX_PROPOSED' || p.status === 'AWAITING_APPROVAL') && (
-                        <div className="flex gap-2 pt-2">
-                          <button onClick={() => approve(p.id)} className="btn-primary flex items-center gap-2">
-                            <CheckCircle className="w-4 h-4" /> Approve & Deploy
+                      <div className="flex gap-2 pt-2">
+                        {(p.status === 'FIX_PROPOSED' || p.status === 'AWAITING_APPROVAL') && (
+                          <>
+                            <button onClick={() => approve(p.id)} className="btn-primary flex items-center gap-2">
+                              <CheckCircle className="w-4 h-4" /> Approve & Fix
+                            </button>
+                            <button onClick={() => reject(p.id)} className="btn-danger flex items-center gap-2">
+                              <XCircle className="w-4 h-4" /> Reject
+                            </button>
+                          </>
+                        )}
+                        {['FAILED', 'REJECTED', 'TEST_FAILED', 'REGRESSION'].includes(p.status) && (
+                          <button onClick={() => retry(p.id)} className="btn-primary flex items-center gap-2">
+                            <RefreshCw className="w-4 h-4" /> Retry
                           </button>
-                          <button onClick={() => reject(p.id)} className="btn-danger flex items-center gap-2">
-                            <XCircle className="w-4 h-4" /> Reject
-                          </button>
-                        </div>
-                      )}
+                        )}
+                        <button onClick={() => deletePipeline(p.id)} className="btn-ghost text-red-500 flex items-center gap-2 text-xs">
+                          <Trash2 className="w-3.5 h-3.5" /> Delete
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
               );
             })}
           </div>
+
+          <Pagination page={page} totalPages={pipelineTotalPages} total={pipelines.length} onPageChange={setPage} />
+          </>
         )
       )}
 
