@@ -7,11 +7,12 @@ How to connect any project (in any language) to Techview CRM so that errors are 
 ## Table of Contents
 
 1. [How It Works](#how-it-works)
-2. [Step 1: Create API Key in CRM](#step-1-create-api-key-in-crm)
-3. [Step 2: Add the Integration Code](#step-2-add-the-integration-code)
-4. [Step 3: Set the API Key](#step-3-set-the-api-key)
-5. [Step 4: Test It](#step-4-test-it)
-6. [Language-Specific Guides](#language-specific-guides)
+2. [What Is and Isn't Caught](#what-is-and-isnt-caught)
+3. [Step 1: Create API Key in CRM](#step-1-create-api-key-in-crm)
+4. [Step 2: Add the Integration Code](#step-2-add-the-integration-code)
+5. [Step 3: Set the API Key](#step-3-set-the-api-key)
+6. [Step 4: Test It](#step-4-test-it)
+7. [Language-Specific Guides](#language-specific-guides)
    - [Node.js / Express (Backend)](#nodejs--express-backend)
    - [Node.js / NestJS (Backend)](#nodejs--nestjs-backend)
    - [Python / Django (Backend)](#python--django-backend)
@@ -27,8 +28,9 @@ How to connect any project (in any language) to Techview CRM so that errors are 
    - [Angular (Frontend)](#angular-frontend)
    - [Vanilla JavaScript (Frontend)](#vanilla-javascript-frontend)
    - [Any Language — Universal HTTP Call](#any-language--universal-http-call)
-7. [What Gets Sent to CRM](#what-gets-sent-to-crm)
-8. [FAQ](#faq)
+8. [Catching More Errors (Closing the Gaps)](#catching-more-errors-closing-the-gaps)
+9. [What Gets Sent to CRM](#what-gets-sent-to-crm)
+10. [FAQ](#faq)
 
 ---
 
@@ -57,6 +59,41 @@ Admin clicks "Auto-Fix" → Claude Code fixes it
 ```
 
 **You only need to do ONE thing**: Add a small piece of code that sends errors to the CRM via HTTP POST. That's it. No SDK to install, no library dependencies — just a simple HTTP call.
+
+---
+
+## What Is and Isn't Caught
+
+The basic integration (error middleware + crash handlers) covers roughly **80% of real production errors**. Here is exactly what is and isn't included.
+
+### Backend
+
+| Scenario | Caught? | How |
+|---|:---:|---|
+| Unhandled error bubbles to error middleware | ✅ | `errorHandler` middleware |
+| App crash — synchronous throw at top level | ✅ | `uncaughtException` |
+| Unhandled promise rejection | ✅ | `unhandledRejection` |
+| Database errors that aren't caught | ✅ | Bubbles to middleware |
+| OOM / missing module / startup failure | ✅ | `uncaughtException` |
+| Error caught in `try/catch` that sends a 5xx | ✅ | Middleware catches the re-thrown error |
+| Error caught in `try/catch` that is **swallowed** | ❌ | Never reaches middleware — must call reporter manually |
+| 4xx errors (validation, auth, not found) | ❌ | Intentional — only 5xx errors are auto-fixed |
+| Errors in background jobs / cron tasks | ❌ | Not in HTTP pipeline — must call reporter manually |
+| Silent failures (returns null instead of throwing) | ❌ | No exception raised |
+
+### Frontend
+
+| Scenario | Caught? | How |
+|---|:---:|---|
+| React component render crash | ✅ | `ErrorBoundary.componentDidCatch` |
+| Uncaught JS runtime error | ✅ | `window.addEventListener('error', ...)` |
+| Unhandled rejected promise | ✅ | `window.addEventListener('unhandledrejection', ...)` |
+| `fetch()` / `axios` error caught and swallowed | ❌ | Must call reporter manually inside the catch |
+| Errors inside Web Workers | ❌ | Separate context — add listener inside the worker |
+| Failed resource loads (images, script 404) | ❌ | Not a JS exception |
+| `console.error()` calls | ❌ | Not an exception |
+
+> **For the missed scenarios** see [Catching More Errors](#catching-more-errors-closing-the-gaps) at the bottom of this guide.
 
 ---
 
@@ -946,6 +983,154 @@ curl -X POST http://localhost:3001/api/sdk/error \
   -H "Content-Type: application/json" \
   -H "x-api-key: YOUR_API_KEY" \
   -d '{"level":"ERROR","message":"Test error from curl","source":"test","category":"api"}'
+```
+
+---
+
+## Catching More Errors (Closing the Gaps)
+
+These patterns cover the scenarios that the basic integration misses. Add only what applies to your project.
+
+---
+
+### Backend — errors inside try/catch blocks
+
+If you catch an error and return a 5xx response, call the reporter explicitly before responding:
+
+```javascript
+// Node.js / Express
+router.post('/process', async (req, res) => {
+  try {
+    await processOrder(req.body);
+    res.json({ ok: true });
+  } catch (err) {
+    reportToCRM(err, req);          // ← add this line
+    res.status(500).json({ error: 'Processing failed' });
+  }
+});
+```
+
+```python
+# Python / Flask or FastAPI
+@app.post('/process')
+def process():
+    try:
+        do_something()
+        return {'ok': True}
+    except Exception as e:
+        report_to_crm(e, request)   # ← add this line
+        return {'error': str(e)}, 500
+```
+
+---
+
+### Backend — background jobs and cron tasks
+
+Jobs run outside the HTTP pipeline so the error middleware never sees them. Wrap the job body:
+
+```javascript
+// Node.js — any recurring job
+async function runNightlySync() {
+  try {
+    await syncData();
+  } catch (err) {
+    reportCrashToCRM('ERROR', err);   // call the crash reporter directly
+    // optionally re-throw or alert
+  }
+}
+```
+
+```python
+# Python — celery task / APScheduler / cron
+@celery.task
+def send_emails():
+    try:
+        do_send()
+    except Exception as e:
+        report_to_crm(e)              # call the reporter directly
+        raise                         # re-raise so Celery marks it as failed
+```
+
+---
+
+### Backend — database / external service silent failures
+
+If a call returns an unexpected value instead of throwing, report it manually:
+
+```javascript
+const user = await db.findUser(id);
+if (!user) {
+  reportToCRM(new Error(`User not found: ${id}`), req);
+  return res.status(404).json({ error: 'Not found' });
+}
+```
+
+---
+
+### Frontend — fetch / axios errors
+
+Catch network errors and report them before handling:
+
+```javascript
+// fetch
+async function loadDashboard() {
+  try {
+    const res = await fetch('/api/dashboard');
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.url}`);
+    return await res.json();
+  } catch (err) {
+    reportError(err, { context: 'loadDashboard' });   // ← add this
+    throw err;
+  }
+}
+
+// axios — global interceptor (add once in main.js / App.tsx)
+axios.interceptors.response.use(
+  res => res,
+  err => {
+    reportError(err, { context: err.config?.url });
+    return Promise.reject(err);
+  }
+);
+```
+
+---
+
+### Frontend — errors inside Web Workers
+
+Add a listener inside the worker file itself:
+
+```javascript
+// worker.js
+self.addEventListener('error', (e) => {
+  fetch('http://localhost:3001/api/sdk/error', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': 'YOUR_KEY' },
+    body: JSON.stringify({
+      level: 'ERROR',
+      message: e.message,
+      source: 'web-worker',
+      category: 'frontend',
+    }),
+  }).catch(() => {});
+});
+```
+
+---
+
+### Frontend — failed resource loads (images, scripts)
+
+```javascript
+// Add once in your main entry file
+window.addEventListener('error', (e) => {
+  // e.target is the element that failed, not a JS error
+  if (e.target && e.target !== window) {
+    const el = e.target;
+    reportError(new Error(`Resource failed to load: ${el.src || el.href}`), {
+      context: `${el.tagName} load failure`,
+    });
+  }
+}, true);  // ← capture phase required to catch resource errors
 ```
 
 ---

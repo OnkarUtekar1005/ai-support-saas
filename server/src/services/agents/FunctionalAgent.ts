@@ -53,30 +53,25 @@ export class FunctionalAgent {
       : '';
 
     // 5. Call Gemini
-    const prompt = `You are a functional support agent that helps diagnose process and workflow issues.
-${config?.systemPrompt ? `\nPROJECT-SPECIFIC INSTRUCTIONS:\n${config.systemPrompt}\n` : ''}
-
-KNOWLEDGE BASE (documentation, SOPs, guides for this project):
-${kbContext}
-
-${pastContext ? `PREVIOUSLY RESOLVED SIMILAR ISSUES:\n${pastContext}\n` : ''}
+    const hasKB = kbResults.length > 0;
+    const prompt = `You are a support agent. Answer the user's issue directly and completely.
+${config?.systemPrompt ? `\nPROJECT CONTEXT:\n${config.systemPrompt}\n` : ''}
+${hasKB ? `\nKNOWLEDGE BASE:\n${kbContext}\n` : ''}
+${pastContext ? `SIMILAR PAST RESOLUTIONS:\n${pastContext}\n` : ''}
 
 USER'S ISSUE:
 ${query}
 
-Analyze this issue and respond in this exact JSON format (no markdown, no code blocks):
-{
-  "rootCause": "Why this issue occurred — explain clearly",
-  "stepsAnalysis": "What the user likely did wrong compared to the correct process described in the knowledge base. If you can't determine this, set to null",
-  "solution": "Step-by-step resolution — clear numbered steps the user should follow",
-  "confidence": 0.0-1.0
-}
+YOU MUST respond ONLY with this JSON (no markdown, no code fences, no other text):
+{"rootCause":"string","stepsAnalysis":"string or null","solution":"string with numbered steps","confidence":0.0}
 
-Important:
-- Compare the user's described situation against the knowledge base documentation
-- If the KB has relevant steps/process, identify which steps were missed or done incorrectly
-- Provide actionable steps, not vague advice
-- Set confidence based on how well the KB covers this scenario`;
+Rules:
+- solution must give concrete numbered steps the user can follow RIGHT NOW
+- If the knowledge base has steps for this, reproduce them directly — do NOT ask the user for more info
+- rootCause: why this happened
+- stepsAnalysis: what step was missed (or null)
+- confidence: ${hasKB ? '0.7-1.0 if KB covers this, else 0.4-0.6' : '0.3-0.5 since no KB was found'}
+- Never ask the user to provide more information — always give the best answer you can`;
 
     const response = await this.gemini.generateContent(prompt, false);
     const jsonStr = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();

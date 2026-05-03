@@ -842,6 +842,10 @@ model Pipeline {
   testOutput         String?      @db.Text
   isRegression       Boolean      @default(false)
   previousPipelineId String?      // link to the fix that didn't hold
+  // Token / cost tracking (accumulated across all Claude Code calls for this pipeline)
+  claudeInputTokens  Int?
+  claudeOutputTokens Int?
+  claudeCostUsd      Float?
   // Links
   vpsAgentId       String?
   projectId        String?

@@ -21,26 +21,28 @@
 
 const { execSync, spawn } = require('child_process');
 const https = require('https');
-const http = require('http');
+const http  = require('http');
+const fs    = require('fs');
+const path  = require('path');
 
 // ─── Configuration (set via environment or edit here) ───
 const CONFIG = {
-  CRM_URL: process.env.CRM_URL || 'http://localhost:3001',
-  AGENT_KEY: process.env.AGENT_KEY || '', // Get from CRM → Pipeline → Agents
-  POLL_INTERVAL: parseInt(process.env.POLL_INTERVAL || '30000'), // 30 seconds
+  CRM_URL:      process.env.CRM_URL      || 'http://localhost:3001',
+  AGENT_KEY:    process.env.AGENT_KEY    || '',
+  POLL_INTERVAL: parseInt(process.env.POLL_INTERVAL || '30000'),
   PROJECT_PATH: process.env.PROJECT_PATH || process.cwd(),
-  // Use a cheaper model for the analysis-only step (no file edits needed)
+  // Haiku for both steps — cheap, fast, sufficient for targeted single-file fixes
   ANALYSIS_MODEL: process.env.ANALYSIS_MODEL || 'claude-haiku-4-5-20251001',
-  // Leave blank to use the default Claude Code model for the fix step
-  FIX_MODEL: process.env.FIX_MODEL || '',
+  FIX_MODEL:      process.env.FIX_MODEL      || 'claude-haiku-4-5-20251001',
 };
 
 // ─── Token budget (tune via env vars) ───
 const BUDGET = {
-  STACK_LINES: parseInt(process.env.MAX_STACK_LINES || '25'),      // ~500 tokens
-  GEMINI_CHARS: parseInt(process.env.MAX_GEMINI_CHARS || '600'),   // ~150 tokens
-  SUGGESTION_CHARS: parseInt(process.env.MAX_SUGGESTION_CHARS || '300'), // ~75 tokens
-  FIX_SUMMARY_CHARS: parseInt(process.env.MAX_FIX_SUMMARY_CHARS || '500'), // ~125 tokens
+  STACK_LINES:      parseInt(process.env.MAX_STACK_LINES      || '20'),
+  GEMINI_CHARS:     parseInt(process.env.MAX_GEMINI_CHARS     || '400'),
+  SUGGESTION_CHARS: parseInt(process.env.MAX_SUGGESTION_CHARS || '200'),
+  FIX_SUMMARY_CHARS:parseInt(process.env.MAX_FIX_SUMMARY_CHARS|| '400'),
+  SNIPPET_LINES:    parseInt(process.env.SNIPPET_LINES        || '30'), // lines of code context
 };
 
 // Trim a stack trace to its top N non-empty lines
@@ -60,6 +62,44 @@ function trunc(str, maxChars) {
   return str.substring(0, maxChars) + '…[truncated]';
 }
 
+// Extract the first project-relative file:line from a Node.js stack trace.
+// e.g. "at handler (/home/app/src/routes/gallery.ts:45:12)" → { file: 'src/routes/gallery.ts', line: 45 }
+function extractFileFromStack(stack) {
+  if (!stack) return null;
+  const base = CONFIG.PROJECT_PATH.replace(/\\/g, '/').replace(/\/$/, '');
+  for (const raw of stack.split('\n')) {
+    const line = raw.replace(/\\/g, '/');
+    // Matches: (absolute/path/file.ext:LINE:COL) or (absolute/path/file.ext:LINE)
+    const m = line.match(/\((.+?\.(?:ts|js|py|rb|go|java|cs|php|rs)):(\d+)(?::\d+)?\)/);
+    if (!m) continue;
+    const abs = m[1];
+    if (abs.startsWith(base)) {
+      return { file: abs.slice(base.length).replace(/^\//, ''), line: parseInt(m[2]) };
+    }
+  }
+  return null;
+}
+
+// Read BUDGET.SNIPPET_LINES lines around targetLine from a project file.
+// Marks the error line with >>>. Returns null if file unreadable.
+function readFileSnippet(relFile, targetLine) {
+  try {
+    const abs = path.join(CONFIG.PROJECT_PATH, relFile);
+    const lines = fs.readFileSync(abs, 'utf-8').split('\n');
+    const half  = Math.floor(BUDGET.SNIPPET_LINES / 2);
+    const start = Math.max(0, targetLine - half - 1);
+    const end   = Math.min(lines.length, targetLine + half);
+    return lines.slice(start, end)
+      .map((l, i) => {
+        const n = start + i + 1;
+        return `${n === targetLine ? '>>>' : '   '} ${String(n).padStart(4)} ${l}`;
+      })
+      .join('\n');
+  } catch {
+    return null;
+  }
+}
+
 if (!CONFIG.AGENT_KEY) {
   console.error('ERROR: AGENT_KEY is required. Set it via environment variable or edit agent.js');
   console.error('Get your agent key from CRM → Admin → Pipeline → Register Agent');
@@ -75,8 +115,8 @@ console.log(`  Poll Interval: ${CONFIG.POLL_INTERVAL / 1000}s`);
 console.log('═══════════════════════════════════════════\n');
 
 // ─── HTTP helper ───
-function crmRequest(endpoint, method, body) {
-  return new Promise((resolve, reject) => {
+function crmRequest(endpoint, method, body, retries = 3) {
+  const attempt = () => new Promise((resolve, reject) => {
     const url = new URL(CONFIG.CRM_URL + '/api/agent-webhook' + endpoint);
     const isHttps = url.protocol === 'https:';
     const lib = isHttps ? https : http;
@@ -104,6 +144,15 @@ function crmRequest(endpoint, method, body) {
     if (body) req.write(JSON.stringify(body));
     req.end();
   });
+
+  const run = (attemptsLeft) =>
+    attempt().catch((err) => {
+      if (attemptsLeft <= 1) throw err;
+      console.warn(`  CRM request failed (${err.message}), retrying in 3s...`);
+      return new Promise((r) => setTimeout(r, 3000)).then(() => run(attemptsLeft - 1));
+    });
+
+  return run(retries);
 }
 
 // ─── Run a shell command and capture output ───
@@ -195,8 +244,8 @@ function isCriticalError(pipeline) {
 // ─── Run Claude Code CLI ───
 // Pass model='' to use the default configured model
 function runClaudeCode(prompt, projectPath, model) {
-  return new Promise((resolve, reject) => {
-    const args = ['--print', '--dangerously-skip-permissions'];
+  return new Promise((resolve) => {
+    const args = ['--print', '--dangerously-skip-permissions', '--output-format', 'json'];
     if (model) args.push('--model', model);
 
     console.log('  Running Claude Code CLI...');
@@ -211,38 +260,48 @@ function runClaudeCode(prompt, projectPath, model) {
       shell: true,
     });
 
-    // Send prompt via stdin
     child.stdin.write(prompt);
     child.stdin.end();
 
-    let output = '';
+    let raw = '';
     let errorOutput = '';
 
-    child.stdout.on('data', (data) => {
-      const text = data.toString();
-      output += text;
-      process.stdout.write(text);
-    });
-
+    child.stdout.on('data', (data) => { raw += data.toString(); });
     child.stderr.on('data', (data) => {
       const text = data.toString();
       errorOutput += text;
-      // Don't treat all stderr as error — claude outputs progress to stderr
       process.stderr.write(text);
     });
 
     child.on('close', (code) => {
       console.log('\n  Claude Code exited with code:', code);
+
+      // Parse JSON output to extract text + token usage
+      let output = raw;
+      let inputTokens = 0, outputTokens = 0, costUsd = 0;
+
+      try {
+        const parsed = JSON.parse(raw.trim());
+        output = parsed.result || parsed.content || raw;
+        costUsd      = parsed.total_cost_usd ?? parsed.cost_usd ?? 0;
+        inputTokens  = parsed.usage?.input_tokens  ?? 0;
+        outputTokens = parsed.usage?.output_tokens ?? 0;
+        console.log(`  Tokens — in: ${inputTokens}  out: ${outputTokens}  cost: $${costUsd.toFixed(4)}`);
+      } catch {
+        // Not JSON (older claude version) — use raw output, no cost data
+        process.stdout.write(raw);
+      }
+
       if (code === 0 || output.length > 0) {
-        resolve({ success: true, output: output || errorOutput });
+        resolve({ success: true, output: output || errorOutput, inputTokens, outputTokens, costUsd });
       } else {
-        resolve({ success: false, output, error: errorOutput || 'Exit code: ' + code });
+        resolve({ success: false, output, error: errorOutput || 'Exit code: ' + code, inputTokens: 0, outputTokens: 0, costUsd: 0 });
       }
     });
 
     child.on('error', (err) => {
       console.error('  Failed to start Claude Code:', err.message);
-      resolve({ success: false, output: '', error: 'Failed to start claude: ' + err.message });
+      resolve({ success: false, output: '', error: 'Failed to start claude: ' + err.message, inputTokens: 0, outputTokens: 0, costUsd: 0 });
     });
   });
 }
@@ -267,30 +326,57 @@ async function processPipeline(pipeline) {
   }
   console.log(`  [CRITICAL] Proceeding with auto-fix.`);
 
+  // Accumulate tokens/cost across all Claude calls for this pipeline
+  let totalInputTokens = 0, totalOutputTokens = 0, totalCostUsd = 0;
+
   try {
-    // Step 1: Analyze with Claude Code
+    // Step 1: Analyze
     if (pipeline.status === 'ANALYZING') {
-      console.log('\n  [1/5] Running Claude Code analysis...');
+      console.log('\n  [1/5] Analyzing...');
 
-      // If Gemini already analyzed it, just ask Claude to confirm the file/line to change.
-      // Otherwise ask Claude to find the root cause from the stack trace.
-      // Either way: use the cheaper Haiku model — no file edits needed here.
-      const hasGeminiContext = !!(pipeline.geminiSuggestion || pipeline.geminiAnalysis);
+      const fileHint = extractFileFromStack(pipeline.errorStack);
+      const snippet  = fileHint ? readFileSnippet(fileHint.file, fileHint.line) : null;
+      const hasGemini = !!(pipeline.geminiSuggestion || pipeline.geminiAnalysis);
 
-      const analysisPrompt = pipeline.claudePrompt || (hasGeminiContext
-        ? `Error in ${pipeline.errorSource || 'app'}:\nERROR: ${pipeline.errorMessage}\nGEMINI FIX: ${trunc(pipeline.geminiSuggestion || pipeline.geminiAnalysis, BUDGET.GEMINI_CHARS)}\n\nIdentify the exact file(s) and line(s) to change. Give a 2-sentence fix plan. Do NOT edit any files.`
-        : `Error in ${pipeline.errorSource || 'app'}:\nERROR: ${pipeline.errorMessage}\nSTACK:\n${trimStack(pipeline.errorStack)}\n\nFind the root cause and describe the minimal fix in 3 sentences. Do NOT edit any files.`
-      );
+      if (snippet && fileHint) {
+        // ── Fast path: we have the exact file + code ─────────────────────────
+        // Skip a separate analysis call entirely — go straight to AWAITING_APPROVAL
+        // with a description built from what we already know.
+        console.log(`  File identified: ${fileHint.file}:${fileHint.line} — skipping analysis call`);
+        const summary =
+          `File: ${fileHint.file} line ${fileHint.line}\n` +
+          `Error: ${pipeline.errorMessage}\n` +
+          (hasGemini ? `Suggestion: ${trunc(pipeline.geminiSuggestion || pipeline.geminiAnalysis, BUDGET.GEMINI_CHARS)}` : '');
 
-      const result = await runClaudeCode(analysisPrompt, CONFIG.PROJECT_PATH, CONFIG.ANALYSIS_MODEL);
+        await crmRequest('/report', 'POST', {
+          pipelineId: id,
+          stage: 'FIX_PROPOSED',
+          claudeOutput: summary,
+          claudeFixSummary: summary,
+        });
+      } else {
+        // ── Slow path: need Claude to locate the file ─────────────────────────
+        const analysisPrompt = pipeline.claudePrompt || (hasGemini
+          ? `Error in ${pipeline.errorSource || 'app'}:\nERROR: ${pipeline.errorMessage}\nGEMINI FIX: ${trunc(pipeline.geminiSuggestion || pipeline.geminiAnalysis, BUDGET.GEMINI_CHARS)}\n\nIdentify the exact file and line to change. Give a 1-sentence fix plan. Do NOT edit files.`
+          : `Error in ${pipeline.errorSource || 'app'}:\nERROR: ${pipeline.errorMessage}\nSTACK:\n${trimStack(pipeline.errorStack)}\n\nFind the root cause file and line, describe the fix in 2 sentences. Do NOT edit files.`
+        );
 
-      await crmRequest('/report', 'POST', {
-        pipelineId: id,
-        stage: 'FIX_PROPOSED',
-        claudeOutput: result.output,
-        claudeFixSummary: result.output.substring(0, 2000),
-        error: result.success ? undefined : result.error,
-      });
+        const result = await runClaudeCode(analysisPrompt, CONFIG.PROJECT_PATH, CONFIG.ANALYSIS_MODEL);
+        totalInputTokens  += result.inputTokens  || 0;
+        totalOutputTokens += result.outputTokens || 0;
+        totalCostUsd      += result.costUsd      || 0;
+
+        await crmRequest('/report', 'POST', {
+          pipelineId: id,
+          stage: 'FIX_PROPOSED',
+          claudeOutput: result.output,
+          claudeFixSummary: result.output.substring(0, 2000),
+          error: result.success ? undefined : result.error,
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          costUsd: result.costUsd,
+        });
+      }
 
       console.log('  Analysis complete. Waiting for approval...');
     }
@@ -312,27 +398,49 @@ async function processPipeline(pipeline) {
       // Step 3: Apply the fix with Claude Code
       console.log('\n  [3/5] Applying fix with Claude Code...');
 
-      // If we have a fix plan from the analysis step, use ONLY that + the error message.
-      // Do NOT re-include the full stack trace or Gemini analysis — they were already
-      // summarized into claudeFixSummary and bloat tokens with no added value.
-      const fixPrompt = pipeline.claudeFixSummary
-        ? `Fix this error with minimal changes:\nERROR: ${pipeline.errorMessage}\nFIX PLAN: ${trunc(pipeline.claudeFixSummary, BUDGET.FIX_SUMMARY_CHARS)}\n\nApply the fix now. Edit only what's necessary.`
-        : `Fix this error with minimal changes:\nERROR: ${pipeline.errorMessage}\n${trimStack(pipeline.errorStack) ? `STACK:\n${trimStack(pipeline.errorStack)}\n` : ''}${pipeline.geminiSuggestion ? `SUGGESTION: ${trunc(pipeline.geminiSuggestion, BUDGET.SUGGESTION_CHARS)}\n` : ''}\nApply the fix now. Edit only what's necessary.`;
+      // Build the tightest possible fix prompt — include the code snippet if we have it
+      // so Claude edits the file directly without any search tool calls.
+      const fileHint = extractFileFromStack(pipeline.errorStack);
+      const snippet  = fileHint ? readFileSnippet(fileHint.file, fileHint.line) : null;
 
-      await crmRequest('/report', 'POST', {
-        pipelineId: id,
-        stage: 'FIXING',
-      });
+      let fixPrompt;
+      if (snippet && fileHint) {
+        fixPrompt =
+          `Fix the bug in ${fileHint.file} (>>> marks line ${fileHint.line}):\n` +
+          `ERROR: ${pipeline.errorMessage}\n` +
+          (pipeline.claudeFixSummary ? `FIX PLAN: ${trunc(pipeline.claudeFixSummary, BUDGET.FIX_SUMMARY_CHARS)}\n` : '') +
+          `\nCODE:\n\`\`\`\n${snippet}\n\`\`\`\n\n` +
+          `Edit ${fileHint.file} to fix the bug. Change only the minimum needed.`;
+      } else if (pipeline.claudeFixSummary) {
+        fixPrompt =
+          `Fix this error with minimal changes:\n` +
+          `ERROR: ${pipeline.errorMessage}\n` +
+          `FIX PLAN: ${trunc(pipeline.claudeFixSummary, BUDGET.FIX_SUMMARY_CHARS)}\n\n` +
+          `Apply the fix now. Edit only what's necessary.`;
+      } else {
+        fixPrompt =
+          `Fix this error:\nERROR: ${pipeline.errorMessage}\n` +
+          `${trimStack(pipeline.errorStack) ? `STACK:\n${trimStack(pipeline.errorStack)}\n` : ''}` +
+          `${pipeline.geminiSuggestion ? `SUGGESTION: ${trunc(pipeline.geminiSuggestion, BUDGET.SUGGESTION_CHARS)}\n` : ''}` +
+          `Apply the minimal fix now.`;
+      }
+
+      await crmRequest('/report', 'POST', { pipelineId: id, stage: 'FIXING' });
 
       const fixResult = await runClaudeCode(fixPrompt, CONFIG.PROJECT_PATH, CONFIG.FIX_MODEL);
+      totalInputTokens  += fixResult.inputTokens  || 0;
+      totalOutputTokens += fixResult.outputTokens || 0;
+      totalCostUsd      += fixResult.costUsd      || 0;
 
-      // Report Claude output regardless of success
       await crmRequest('/report', 'POST', {
         pipelineId: id,
         stage: fixResult.success ? 'COMMITTED' : 'FAILED',
         claudeOutput: fixResult.output,
         claudeFixSummary: (fixResult.output || '').substring(0, 2000),
         error: fixResult.success ? undefined : (fixResult.error || 'Claude Code failed'),
+        inputTokens: fixResult.inputTokens,
+        outputTokens: fixResult.outputTokens,
+        costUsd: fixResult.costUsd,
       });
 
       if (!fixResult.success) {
@@ -340,45 +448,48 @@ async function processPipeline(pipeline) {
         return;
       }
 
-      // Step 4: Try git operations (optional — skip if no git repo)
-      console.log('\n  [4/5] Checking git...');
+      // Step 4: Git commit + push — only if a remote repo is configured on the pipeline
+      console.log('\n  [4/5] Git...');
 
-      var gitAvailable = runCommand('git status').success;
       var filesChanged = [];
       var commitHash = '';
+      var branchNameUsed = '';
+      var gitRepoUrl = pipeline.gitRepoUrl || '';
 
-      if (gitAvailable) {
-        var diffResult = runCommand('git diff --name-only');
-        filesChanged = (diffResult.output || '').split('\\n').filter(Boolean);
+      // Always detect which files Claude changed (for reporting)
+      var diffResult = runCommand('git diff --name-only');
+      filesChanged = (diffResult.output || '').split('\n').filter(Boolean);
+      console.log('  Files changed by Claude: ' + (filesChanged.length > 0 ? filesChanged.join(', ') : 'none'));
 
+      if (gitRepoUrl) {
+        // Git configured — commit to a branch and push
+        branchNameUsed = branchName;
         if (filesChanged.length > 0) {
-          runCommand('git add -A');
+          runCommand('git add ' + filesChanged.map(f => '"' + f + '"').join(' '));
           var commitMsg = 'fix: auto-fix ' + pipeline.errorSource + ' — ' + pipeline.errorMessage.substring(0, 60);
           runCommand('git commit -m "' + commitMsg + '"');
           var hashResult = runCommand('git rev-parse --short HEAD');
           commitHash = hashResult.output;
-          runCommand('git push origin ' + branchName);
-          console.log('  Committed: ' + commitHash);
-          console.log('  Files: ' + filesChanged.join(', '));
+          runCommand('git push origin ' + branchNameUsed);
+          console.log('  Committed & pushed: ' + commitHash);
         } else {
-          console.log('  No files changed by Claude Code.');
+          console.log('  No files changed.');
         }
-
-        await crmRequest('/report', 'POST', {
-          pipelineId: id,
-          stage: 'COMMITTED',
-          filesChanged: filesChanged,
-          branchName: branchName,
-          commitHash: commitHash,
-        });
       } else {
-        console.log('  No git repo found — skipping git operations.');
-        await crmRequest('/report', 'POST', {
-          pipelineId: id,
-          stage: 'COMMITTED',
-          claudeFixSummary: 'Fix applied by Claude Code (no git repo — changes applied directly)',
-        });
+        // No git config — fix is applied directly to files, no commit needed
+        console.log('  No git repo configured — fix applied directly to files.');
       }
+
+      await crmRequest('/report', 'POST', {
+        pipelineId: id,
+        stage: 'COMMITTED',
+        filesChanged,
+        branchName: branchNameUsed,
+        commitHash,
+        claudeFixSummary: gitRepoUrl
+          ? (commitHash ? `Committed ${filesChanged.length} file(s) to ${branchNameUsed}` : 'No files changed')
+          : `Fix applied directly to ${filesChanged.length} file(s) — no git commit (not configured)`,
+      });
 
       // Step 5: Deploy
       console.log('\n  [5/5] Deploying...');
@@ -396,10 +507,18 @@ async function processPipeline(pipeline) {
       var restartResult = runCommand(pipeline.restartCommand || 'pm2 restart all');
       deployLog.push('RESTART: ' + (restartResult.success ? 'OK' : 'skipped'));
 
+      console.log(`\n  ── Total cost for this pipeline ──`);
+      console.log(`     Input tokens : ${totalInputTokens}`);
+      console.log(`     Output tokens: ${totalOutputTokens}`);
+      console.log(`     Cost (USD)   : $${totalCostUsd.toFixed(4)}`);
+
       await crmRequest('/report', 'POST', {
         pipelineId: id,
         stage: 'DEPLOYED',
         deployLog: deployLog.join('\\n'),
+        inputTokens: totalInputTokens,
+        outputTokens: totalOutputTokens,
+        costUsd: totalCostUsd,
       });
 
       console.log('  Pipeline complete!');

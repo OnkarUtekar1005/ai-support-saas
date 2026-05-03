@@ -260,6 +260,15 @@ export function PipelinePage() {
                         </div>
                       )}
 
+                      {/* Token / cost summary */}
+                      {(detail.claudeCostUsd > 0 || detail.claudeInputTokens > 0) && (
+                        <div className="flex flex-wrap gap-3 text-xs text-gray-600 bg-gray-50 rounded-lg px-3 py-2">
+                          <span>In: <strong>{(detail.claudeInputTokens ?? 0).toLocaleString()}</strong> tokens</span>
+                          <span>Out: <strong>{(detail.claudeOutputTokens ?? 0).toLocaleString()}</strong> tokens</span>
+                          <span className="text-emerald-700 font-semibold">Cost: ${(detail.claudeCostUsd ?? 0).toFixed(4)}</span>
+                        </div>
+                      )}
+
                       {/* Pipeline logs timeline */}
                       {detail.logs?.length > 0 && (
                         <div>

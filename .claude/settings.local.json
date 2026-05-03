@@ -26,7 +26,9 @@
       "Bash(Select-Object Name, PSIsContainer)",
       "PowerShell(Get-ChildItem -Path \"D:\\\\Projects\\\\ai-support-saas\\\\client\\\\src\" -Recurse -Force | Where-Object {!$_.PSIsContainer} | Select-Object FullName)",
       "PowerShell(cd \"D:\\\\Projects\\\\ai-support-saas\\\\client\" && npx tsc --noEmit 2>&1 | Where-Object { $_ -match \"AppLayout\" })",
-      "PowerShell(cd \"D:\\\\Projects\\\\ai-support-saas\\\\client\" && npx tsc --noEmit 2>&1 | Where-Object { $_ -match \"AppLayout|index\\\\.css\" })"
+      "PowerShell(cd \"D:\\\\Projects\\\\ai-support-saas\\\\client\" && npx tsc --noEmit 2>&1 | Where-Object { $_ -match \"AppLayout|index\\\\.css\" })",
+      "Bash(Get-ChildItem *)",
+      "PowerShell(Select-String *)"
     ]
   }
 }

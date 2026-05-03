@@ -19,7 +19,25 @@ agentWebhookRoutes.post('/heartbeat', async (req: Request, res: Response) => {
     data: { isOnline: true, lastHeartbeat: new Date() },
   });
 
-  // Return any pending pipelines for this agent
+  // Claim any unassigned DETECTED pipelines in this org → assign to this agent and move to ANALYZING
+  const unassigned = await prisma.pipeline.findMany({
+    where: {
+      organizationId: agent.organizationId,
+      vpsAgentId: null,
+      status: 'DETECTED',
+    },
+    orderBy: { createdAt: 'asc' },
+    take: 3,
+  });
+
+  if (unassigned.length > 0) {
+    await prisma.pipeline.updateMany({
+      where: { id: { in: unassigned.map((p) => p.id) } },
+      data: { vpsAgentId: agent.id, status: 'ANALYZING' },
+    });
+  }
+
+  // Return all pipelines assigned to this agent that need processing
   const pending = await prisma.pipeline.findMany({
     where: {
       vpsAgentId: agent.id,
@@ -40,7 +58,7 @@ agentWebhookRoutes.post('/report', async (req: Request, res: Response) => {
   const agent = await prisma.vpsAgent.findUnique({ where: { agentKey } });
   if (!agent) return res.status(401).json({ error: 'Invalid agent key' });
 
-  const { pipelineId, stage, claudeOutput, claudeFixSummary, filesChanged, branchName, commitHash, deployLog, error } = req.body;
+  const { pipelineId, stage, claudeOutput, claudeFixSummary, filesChanged, branchName, commitHash, deployLog, error, inputTokens, outputTokens, costUsd } = req.body;
 
   const data: any = {};
   if (claudeOutput) data.claudeOutput = claudeOutput;
@@ -49,6 +67,17 @@ agentWebhookRoutes.post('/report', async (req: Request, res: Response) => {
   if (branchName) data.branchName = branchName;
   if (commitHash) data.commitHash = commitHash;
   if (deployLog) data.deployLog = deployLog;
+
+  // Accumulate token/cost totals across all reports for this pipeline
+  if (inputTokens || outputTokens || costUsd) {
+    const current = await prisma.pipeline.findUnique({
+      where: { id: pipelineId },
+      select: { claudeInputTokens: true, claudeOutputTokens: true, claudeCostUsd: true },
+    });
+    data.claudeInputTokens  = (current?.claudeInputTokens  ?? 0) + (inputTokens  ?? 0);
+    data.claudeOutputTokens = (current?.claudeOutputTokens ?? 0) + (outputTokens ?? 0);
+    data.claudeCostUsd      = parseFloat(((current?.claudeCostUsd ?? 0) + (costUsd ?? 0)).toFixed(6));
+  }
 
   if (error) {
     data.status = 'FAILED';

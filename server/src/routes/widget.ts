@@ -3,6 +3,7 @@ import { apiKeyAuth, SdkRequest, requirePermission } from '../middleware/apiKeyA
 import { prisma } from '../utils/prisma';
 import { GeminiClient } from '../services/ai/GeminiClient';
 import { ErrorLogger } from '../services/logging/ErrorLogger';
+import { VectorStore, SearchResult } from '../services/rag/VectorStore';
 
 export const widgetRoutes = Router();
 widgetRoutes.use(apiKeyAuth);
@@ -142,9 +143,26 @@ widgetRoutes.post('/message', async (req: SdkRequest, res: Response) => {
     const systemPrompt = config.systemPrompt || 'You are a helpful support assistant.';
     const knowledgeContext = config.knowledgeContext || '';
 
+    // Dynamic knowledge search from uploaded documents
+    let ragContext = '';
+    const projectId = req.apiKey!.projectId;
+    if (projectId) {
+      try {
+        const vectorStore = new VectorStore();
+        const hits = await vectorStore.searchByProject(req.apiKey!.organizationId, projectId, content, 4);
+        if (hits.length > 0) {
+          ragContext = hits.map((h: SearchResult) => h.content).join('\n\n---\n\n');
+        }
+      } catch {
+        // RAG failure is non-fatal — fall back to static knowledge only
+      }
+    }
+
+    const combinedKnowledge = [knowledgeContext, ragContext].filter(Boolean).join('\n\n');
+
     const prompt = `${systemPrompt}
 
-${knowledgeContext ? `KNOWLEDGE BASE:\n${knowledgeContext}\n` : ''}
+${combinedKnowledge ? `KNOWLEDGE BASE:\n${combinedKnowledge}\n` : ''}
 
 IMPORTANT: If the user asks to create a ticket, raise an issue, report a bug, or log a problem, respond ONLY with this exact JSON format (no other text):
 {"create_ticket": true, "title": "short title of the issue", "description": "detailed description based on the conversation"}

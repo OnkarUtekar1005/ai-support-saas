@@ -31,8 +31,9 @@ functionalAgentRoutes.post('/resolve', async (req: AuthRequest, res: Response) =
 
     res.json(resolution);
   } catch (err) {
-    console.error('FunctionalAgent.resolve failed:', (err as Error).message);
-    res.status(500).json({ error: 'Failed to resolve query' });
+    const msg = (err as Error).message;
+    console.error('FunctionalAgent.resolve failed:', msg, (err as Error).stack);
+    res.status(500).json({ error: msg });
   }
 });
 
@@ -59,9 +60,12 @@ functionalAgentRoutes.post('/resolution/:id/feedback', async (req: AuthRequest, 
   const resolutionId = req.params.id as string;
   const { feedback } = req.body;
 
-  if (!feedback || !['helpful', 'not_helpful'].includes(feedback)) {
-    return res.status(400).json({ error: 'feedback must be "helpful" or "not_helpful"' });
+  const VALID = ['helpful', 'not_helpful', 'positive', 'negative'];
+  if (!feedback || !VALID.includes(feedback)) {
+    return res.status(400).json({ error: 'feedback must be helpful or not_helpful' });
   }
+  // Normalise to stored values
+  const normFeedback = feedback === 'positive' ? 'helpful' : feedback === 'negative' ? 'not_helpful' : feedback;
 
   const resolution = await prisma.functionalResolution.findFirst({
     where: {
@@ -74,7 +78,7 @@ functionalAgentRoutes.post('/resolution/:id/feedback', async (req: AuthRequest, 
 
   const updated = await prisma.functionalResolution.update({
     where: { id: resolutionId },
-    data: { feedback },
+    data: { feedback: normFeedback },
   });
 
   res.json(updated);

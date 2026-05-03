@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect } from 'react';
 import { api } from '../services/api';
-import { Plus, Key, Copy, Check, Trash2, Globe, Smartphone, Server, Eye, EyeOff, Code, BarChart3 } from 'lucide-react';
+import { Plus, Key, Copy, Check, Trash2, Globe, Smartphone, Server, Eye, EyeOff, Code, BarChart3, Pencil } from 'lucide-react';
 
 const PLATFORM_ICONS: Record<string, any> = { web: Globe, ios: Smartphone, android: Smartphone, server: Server };
 const PLATFORM_LABELS: Record<string, string> = { web: 'Website / Web App', ios: 'iOS App', android: 'Android App', server: 'Backend Server' };
@@ -14,6 +14,8 @@ export function IntegrationsPage() {
   const [newKeyRevealed, setNewKeyRevealed] = useState<string | null>(null); // full key shown once
   const [copied, setCopied] = useState('');
   const [stats, setStats] = useState<Record<string, any>>({});
+  const [editKey, setEditKey] = useState<any | null>(null);
+  const [editForm, setEditForm] = useState({ name: '', projectId: '', allowedOrigins: [''], permissions: [] as string[] });
   const [form, setForm] = useState({
     name: '', platform: 'web', projectId: '',
     allowedOrigins: [''], permissions: ['contacts', 'tickets', 'errors', 'events'],
@@ -45,6 +47,28 @@ export function IntegrationsPage() {
     if (!confirm('Delete this API key? Any apps using it will stop working.')) return;
     await api.deleteApiKey(id);
     setKeys((prev) => prev.filter((k) => k.id !== id));
+  };
+
+  const openEdit = (k: any) => {
+    setEditKey(k);
+    setEditForm({
+      name: k.name,
+      projectId: k.projectId || '',
+      allowedOrigins: k.allowedOrigins?.length ? k.allowedOrigins : [''],
+      permissions: k.permissions || [],
+    });
+  };
+
+  const handleEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await api.updateApiKey(editKey.id, {
+      name: editForm.name,
+      projectId: editForm.projectId || null,
+      allowedOrigins: editForm.allowedOrigins.filter(Boolean),
+      permissions: editForm.permissions,
+    });
+    setKeys((prev) => prev.map((k) => k.id === editKey.id ? { ...k, ...editForm, allowedOrigins: editForm.allowedOrigins.filter(Boolean) } : k));
+    setEditKey(null);
   };
 
   const toggleActive = async (id: string, isActive: boolean) => {
@@ -278,6 +302,9 @@ await crmRequest('/ticket', {
                     <button onClick={() => setShowSnippet(showSnippet === k.id ? null : k.id)} className="p-2 text-gray-400 hover:text-sky-600" title="Code snippet">
                       <Code className="w-4 h-4" />
                     </button>
+                    <button onClick={() => openEdit(k)} className="p-2 text-gray-400 hover:text-sky-600" title="Edit">
+                      <Pencil className="w-4 h-4" />
+                    </button>
                     <button onClick={() => toggleActive(k.id, k.isActive)} className="p-2 text-gray-400 hover:text-yellow-600" title={k.isActive ? 'Disable' : 'Enable'}>
                       {k.isActive ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
@@ -329,6 +356,70 @@ await crmRequest('/ticket', {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Edit modal */}
+      {editKey && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <form onSubmit={handleEdit} className="bg-white rounded-xl p-6 w-full max-w-md space-y-4">
+            <h2 className="text-lg font-bold">Edit API Key</h2>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Name</label>
+              <input value={editForm.name} onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))} className="input-field" required />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Project</label>
+              <select value={editForm.projectId} onChange={(e) => setEditForm((f) => ({ ...f, projectId: e.target.value }))} className="input-field">
+                <option value="">All Projects</option>
+                {projects.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Allowed Origins (leave empty to allow all)</label>
+              {editForm.allowedOrigins.map((origin, i) => (
+                <div key={i} className="flex gap-2 mb-1">
+                  <input
+                    value={origin}
+                    onChange={(e) => {
+                      const origins = [...editForm.allowedOrigins];
+                      origins[i] = e.target.value;
+                      setEditForm((f) => ({ ...f, allowedOrigins: origins }));
+                    }}
+                    className="input-field"
+                    placeholder="https://myapp.com or leave empty"
+                  />
+                  {editForm.allowedOrigins.length > 1 && (
+                    <button type="button" onClick={() => setEditForm((f) => ({ ...f, allowedOrigins: f.allowedOrigins.filter((_, j) => j !== i) }))} className="text-red-500 text-sm">Remove</button>
+                  )}
+                </div>
+              ))}
+              <button type="button" onClick={() => setEditForm((f) => ({ ...f, allowedOrigins: [...f.allowedOrigins, ''] }))} className="text-sky-600 text-xs font-medium">+ Add origin</button>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Permissions</label>
+              <div className="flex flex-wrap gap-2">
+                {['contacts', 'tickets', 'errors', 'events'].map((p) => (
+                  <label key={p} className="flex items-center gap-1.5">
+                    <input
+                      type="checkbox"
+                      checked={editForm.permissions.includes(p)}
+                      onChange={(e) => setEditForm((f) => ({
+                        ...f,
+                        permissions: e.target.checked ? [...f.permissions, p] : f.permissions.filter((x) => x !== p),
+                      }))}
+                      className="rounded"
+                    />
+                    <span className="text-sm capitalize">{p}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="flex gap-3 justify-end pt-2">
+              <button type="button" onClick={() => setEditKey(null)} className="btn-secondary">Cancel</button>
+              <button type="submit" className="btn-primary">Save Changes</button>
+            </div>
+          </form>
         </div>
       )}
 

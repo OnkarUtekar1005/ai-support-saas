@@ -43,13 +43,14 @@ export class VectorStore {
   }
 
   async search(organizationId: string, query: string, topK = 5): Promise<SearchResult[]> {
-    const queryEmbedding = await this.embeddings.embedText(query);
-
     const entries = await prisma.knowledgeEntry.findMany({
       where: { organizationId },
       select: { id: true, title: true, content: true, embedding: true },
     });
 
+    if (entries.length === 0) return [];
+
+    const queryEmbedding = await this.embeddings.embedText(query);
     return this.rankBySimilarity(entries, queryEmbedding, topK);
   }
 
@@ -59,13 +60,15 @@ export class VectorStore {
     query: string,
     topK = 5
   ): Promise<SearchResult[]> {
-    const queryEmbedding = await this.embeddings.embedText(query);
-
     const entries = await prisma.knowledgeEntry.findMany({
       where: { organizationId, projectId },
       select: { id: true, title: true, content: true, embedding: true },
     });
 
+    // Skip embedding API call if there's nothing to search
+    if (entries.length === 0) return [];
+
+    const queryEmbedding = await this.embeddings.embedText(query);
     return this.rankBySimilarity(entries, queryEmbedding, topK);
   }
 
