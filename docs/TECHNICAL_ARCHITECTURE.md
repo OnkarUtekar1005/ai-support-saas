@@ -744,7 +744,7 @@ YOUR APPLICATION (Website / Mobile / Server)
 │  The API key IS the identity:                            │
 │  ┌──────────────────────────────────────────┐            │
 │  │ sk_live_abc123...                        │            │
-│  │ ├── organizationId: "acme-org-uuid"      │            │
+│  │ ├── organizationId: "techviewai-org-uuid"      │            │
 │  │ ├── projectId: "billing-project-uuid"    │            │
 │  │ ├── permissions: ["errors","contacts"]   │            │
 │  │ └── allowedOrigins: ["https://myapp.com"]│            │

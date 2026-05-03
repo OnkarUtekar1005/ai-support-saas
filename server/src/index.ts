@@ -35,6 +35,7 @@ import { orchestratorRoutes } from './routes/orchestrator';
 import { agentConfigRoutes } from './routes/agentConfig';
 import { documentRoutes } from './routes/documents';
 import { functionalAgentRoutes } from './routes/functionalAgent';
+import { documentAgentRoutes } from './routes/documentAgent';
 import { notificationRoutes } from './routes/notifications';
 import { reminderConfigRoutes } from './routes/reminderConfig';
 import { financeRoutes } from './routes/finance';
@@ -125,6 +126,7 @@ app.use('/api/orchestrator', orchestratorRoutes);
 app.use('/api/agent-config', agentConfigRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/functional-agent', functionalAgentRoutes);
+app.use('/api/document-agent', documentAgentRoutes);
 app.use('/', sdkScriptRoutes);  // serves /sdk.js
 app.use('/', widgetScriptRoutes); // serves /widget.js
 

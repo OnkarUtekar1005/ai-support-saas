@@ -99,7 +99,7 @@ The basic integration (error middleware + crash handlers) covers roughly **80% o
 
 ## Step 1: Create API Key in CRM
 
-1. Login to CRM as admin (`admin@acme.com` / `admin123`)
+1. Login to CRM as admin (`admin@techviewai.com` / `admin123`)
 2. Go to **Integrations** in the sidebar
 3. Click **"New API Key"**
 4. Fill in:

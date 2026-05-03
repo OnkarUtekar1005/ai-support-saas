@@ -36,7 +36,7 @@ If the client belongs to a company that is not yet in your CRM, add it first.
 1. Go to **CRM → Companies** in the left sidebar
 2. Click **New Company**
 3. Fill in:
-   - **Company Name** — required (e.g. "Acme Corp")
+   - **Company Name** — required (e.g. "TechviewAI Corp")
    - **Industry** — optional (e.g. "SaaS", "Retail")
    - **Website / Phone / Address** — as available
    - **Notes** — any background context
@@ -67,7 +67,7 @@ If the client belongs to a company that is not yet in your CRM, add it first.
 1. Go to **Projects** in the left sidebar
 2. Click **New Project**
 3. Fill in:
-   - **Project Name** — required (e.g. "Acme Corp — Portal v2")
+   - **Project Name** — required (e.g. "TechviewAI Corp — Portal v2")
    - **Description** — what the project is about
    - **Budget** — total contract value in your chosen currency
    - **Currency** — select the billing currency (USD, INR, GBP, etc.)

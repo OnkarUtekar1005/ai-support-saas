@@ -6,12 +6,12 @@
 
 | # | Name | Email | Password | Role | Projects |
 |---|------|-------|----------|------|----------|
-| 1 | Onkar Patil | `admin@acme.com` | `admin123` | SUPER_ADMIN | All projects (automatic) |
-| 2 | Priya Sharma | `priya@acme.com` | `agent123` | ADMIN | APAC Billing (Manager), CRM Migration (Member) |
-| 3 | Rahul Mehta | `rahul@acme.com` | `agent123` | AGENT | APAC Billing (Member), Mobile App v3 (Owner) |
-| 4 | Demo Viewer | `viewer@acme.com` | `viewer123` | VIEWER | None (no data access) |
+| 1 | Onkar Patil | `admin@techviewai.com` admin@acme.com | `admin123` | SUPER_ADMIN | All projects (automatic) |
+| 2 | Priya Sharma | `priya@techviewai.com` | `agent123` | ADMIN | APAC Billing (Manager), CRM Migration (Member) |
+| 3 | Rahul Mehta | `rahul@techviewai.com` | `agent123` | AGENT | APAC Billing (Member), Mobile App v3 (Owner) |
+| 4 | Demo Viewer | `viewer@techviewai.com` | `viewer123` | VIEWER | None (no data access) |
 
-**Organization**: Acme Corporation (PRO plan)
+**Organization**: TechviewAI Corp (PRO plan)
 
 ---
 
@@ -199,28 +199,28 @@ Read-only access. Can only view data, cannot create or modify anything.
 ## How to Test Differentiation
 
 ### Test 1: Project Visibility
-1. Login as `rahul@acme.com` / `agent123`
+1. Login as `rahul@techviewai.com` / `agent123`
 2. Go to Projects → should see ONLY "APAC Billing" and "Mobile App v3"
 3. "Enterprise CRM Migration" should NOT appear
 
 ### Test 2: Ticket Scoping
-1. Login as `priya@acme.com` / `agent123`
+1. Login as `priya@techviewai.com` / `agent123`
 2. Go to Tickets → should see tickets from "APAC Billing" and "CRM Migration" only
 3. No tickets from "Mobile App v3" should appear
 
 ### Test 3: Admin Menu Hidden
-1. Login as `rahul@acme.com` / `agent123`
+1. Login as `rahul@techviewai.com` / `agent123`
 2. Sidebar should NOT show: Agent Config, Knowledge Base, Error Logs, Settings
 3. These are admin-only features
 
 ### Test 4: Viewer Read-Only
-1. Login as `viewer@acme.com` / `viewer123`
+1. Login as `viewer@techviewai.com` / `viewer123`
 2. No "New Ticket", "Add Contact", etc. buttons should appear
 3. All pages should be view-only
 4. Projects list should be empty (no assignments)
 
 ### Test 5: Super Admin Full Access
-1. Login as `admin@acme.com` / `admin123`
+1. Login as `admin@techviewai.com` / `admin123`
 2. See all 3 projects
 3. See all tickets, errors, contacts from all projects
 4. All admin features available
@@ -231,7 +231,7 @@ Read-only access. Can only view data, cannot create or modify anything.
 
 Only SUPER_ADMIN can add users:
 
-1. Login as `admin@acme.com`
+1. Login as `admin@techviewai.com`
 2. Go to **Settings** → **Team & Roles**
 3. Scroll to "Invite Team Member"
 4. Fill in: Name, Email, Password, Role

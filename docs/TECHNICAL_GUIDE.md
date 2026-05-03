@@ -130,7 +130,7 @@ What each command does:
 You should see output ending with:
 ```
 SEED COMPLETE
-Login: admin@acme.com / admin123
+Login: admin@techviewai.com / admin123
 ```
 
 ---
@@ -168,10 +168,10 @@ Open http://localhost:5173 in your browser.
 
 | Role | Email | Password | What They Can Do |
 |------|-------|----------|------------------|
-| Super Admin | `admin@acme.com` | `admin123` | Everything — full access to all features |
-| Admin | `priya@acme.com` | `agent123` | Manage assigned projects |
-| Agent | `rahul@acme.com` | `agent123` | Work on assigned projects |
-| Viewer | `viewer@acme.com` | `viewer123` | Read-only access |
+| Super Admin | `admin@techviewai.com` | `admin123` | Everything — full access to all features |
+| Admin | `priya@techviewai.com` | `agent123` | Manage assigned projects |
+| Agent | `rahul@techviewai.com` | `agent123` | Work on assigned projects |
+| Viewer | `viewer@techviewai.com` | `viewer123` | Read-only access |
 
 **To create your own organization:**
 1. Go to http://localhost:5173/register
@@ -416,7 +416,7 @@ The Functional Agent resolves process/workflow issues by searching your knowledg
 
 **Example System Prompt:**
 ```
-You are a support agent for the Acme Billing System.
+You are a support agent for the TechviewAI Billing System.
 
 Key processes:
 - Invoice creation requires an active subscription
@@ -803,7 +803,7 @@ All configuration is in `server/.env`:
 ### "Login fails with 401"
 
 - Re-seed the database: `cd server && npx prisma db seed`
-- Use the correct credentials: `admin@acme.com` / `admin123`
+- Use the correct credentials: `admin@techviewai.com` / `admin123`
 
 ### "Orchestrator not picking up auto-fix"
 
@@ -868,7 +868,7 @@ npm run setup:triggers
 |--------|-------|
 | Start the app | `npm run dev` (from project root) |
 | Start the orchestrator | `npm run orchestrator` (from server/) |
-| Login | http://localhost:5173 → `admin@acme.com` / `admin123` |
+| Login | http://localhost:5173 → `admin@techviewai.com` / `admin123` |
 | Create a project | Sidebar → Projects → New Project |
 | Create a ticket | Sidebar → Tickets → New Ticket |
 | Configure Technical Agent | Sidebar → Agent Config → select project → Technical tab |

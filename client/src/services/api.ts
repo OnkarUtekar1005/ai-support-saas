@@ -226,6 +226,15 @@ export const api = {
   submitResolutionFeedback: (id: string, feedback: string) =>
     request(`/functional-agent/resolution/${id}/feedback`, { method: 'POST', body: JSON.stringify({ feedback }) }),
 
+  // ─── Document Agent ───
+  startDocumentSession: (data: { title?: string; requirements: string; projectId?: string }) =>
+    request('/document-agent/start', { method: 'POST', body: JSON.stringify(data) }),
+  replyDocumentSession: (id: string, answer: string) =>
+    request(`/document-agent/${id}/reply`, { method: 'POST', body: JSON.stringify({ answer }) }),
+  getDocumentSession: (id: string) => request(`/document-agent/${id}`),
+  listDocumentSessions: () => request('/document-agent'),
+  deleteDocumentSession: (id: string) => request(`/document-agent/${id}`, { method: 'DELETE' }),
+
   // ─── Notifications ───
   getNotifications: () => request('/notifications'),
   getUnreadCount: () => request('/notifications/unread-count'),

@@ -68,7 +68,7 @@ export function RegisterPage() {
             )}
             <div>
               <label className="block text-sm font-medium text-gray-900 mb-1.5">Organization Name</label>
-              <input value={form.orgName} onChange={update('orgName')} className="input-field" required placeholder="Acme Inc." />
+              <input value={form.orgName} onChange={update('orgName')} className="input-field" required placeholder="TechviewAI Corp" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-900 mb-1.5">Your Name</label>

@@ -2,10 +2,10 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import {
-  LayoutDashboard, Ticket, MessageSquare, AlertTriangle, Settings, LogOut,
+  LayoutDashboard, Ticket, AlertTriangle, Settings, LogOut,
   FolderOpen, UserCircle, Building2, Receipt, Activity, Plug, Bot, Database,
   Menu, X, Search, ChevronLeft, Bell, ChevronRight, Zap, BookOpen, ClipboardList,
-  Check,
+  Check, FileText,
 } from 'lucide-react';
 import { api } from '../../services/api';
 
@@ -34,7 +34,6 @@ const navSections: NavSection[] = [
     title: 'SUPPORT',
     items: [
       { to: '/tickets', icon: Ticket, label: 'Tickets' },
-      { to: '/chat', icon: MessageSquare, label: 'AI Assistant' },
     ],
   },
   {
@@ -55,6 +54,7 @@ const navSections: NavSection[] = [
       { to: '/agent-config', icon: Bot, label: 'Agent Config', adminOnly: true },
       { to: '/knowledge-base', icon: BookOpen, label: 'Knowledge Base', adminOnly: true },
       { to: '/pipeline', icon: Zap, label: 'Auto-Fix', adminOnly: true },
+      { to: '/document-agent', icon: FileText, label: 'Document Agent', adminOnly: true },
       { to: '/db-connect', icon: Database, label: 'Databases', adminOnly: true },
       { to: '/error-logs', icon: AlertTriangle, label: 'Error Logs', adminOnly: true },
       { to: '/settings', icon: Settings, label: 'Settings', adminOnly: true },
@@ -66,7 +66,6 @@ const searchablePages = [
   { label: 'Dashboard', path: '/', keywords: 'home overview stats' },
   { label: 'My Tasks', path: '/my-tasks', keywords: 'tasks assigned me todo' },
   { label: 'Tickets', path: '/tickets', keywords: 'support issues bugs' },
-  { label: 'AI Assistant', path: '/chat', keywords: 'chat bot ai help' },
   { label: 'Projects', path: '/projects', keywords: 'project team' },
   { label: 'Contacts', path: '/contacts', keywords: 'people customers leads' },
   { label: 'Companies', path: '/companies', keywords: 'accounts organizations' },

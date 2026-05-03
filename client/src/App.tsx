@@ -8,7 +8,6 @@ import { RegisterPage } from './pages/RegisterPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { TicketsPage } from './pages/TicketsPage';
 import { TicketDetailPage } from './pages/TicketDetailPage';
-import { ChatPage } from './pages/ChatPage';
 import { ErrorLogsPage } from './pages/ErrorLogsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { ProjectsPage } from './pages/ProjectsPage';
@@ -25,6 +24,7 @@ import { AgentConfigPage } from './pages/AgentConfigPage';
 import { AgentConfigDetailPage } from './pages/AgentConfigDetailPage';
 import { KnowledgeBasePage } from './pages/KnowledgeBasePage';
 import { MyTasksPage } from './pages/MyTasksPage';
+import { DocumentAgentPage } from './pages/DocumentAgentPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -54,7 +54,6 @@ function AppRoutes() {
         {/* Support */}
         <Route path="tickets" element={<TicketsPage />} />
         <Route path="tickets/:id" element={<TicketDetailPage />} />
-        <Route path="chat" element={<ChatPage />} />
         {/* CRM */}
         <Route path="projects" element={<ProjectsPage />} />
         <Route path="projects/:id" element={<ProjectDetailPage />} />
@@ -70,6 +69,7 @@ function AppRoutes() {
         <Route path="agent-config" element={<AgentConfigPage />} />
         <Route path="agent-config/:id" element={<AgentConfigDetailPage />} />
         <Route path="knowledge-base" element={<KnowledgeBasePage />} />
+        <Route path="document-agent" element={<DocumentAgentPage />} />
         <Route path="error-logs" element={<ErrorLogsPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>

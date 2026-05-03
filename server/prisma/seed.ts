@@ -13,11 +13,11 @@ async function main() {
   // ─────────────────────────────────────────
   console.log('[1/10] Creating organization...');
   const org = await prisma.organization.upsert({
-    where: { slug: 'acme-corp' },
+    where: { slug: 'techviewai-corp' },
     update: {},
     create: {
-      name: 'Acme Corporation',
-      slug: 'acme-corp',
+      name: 'TechviewAI Corp',
+      slug: 'techviewai-corp',
       plan: 'PRO',
     },
   });
@@ -31,10 +31,10 @@ async function main() {
   const viewerHash = await bcrypt.hash('viewer123', 12);
 
   const admin = await prisma.user.upsert({
-    where: { email: 'admin@acme.com' },
+    where: { email: 'admin@techviewai.com' },
     update: {},
     create: {
-      email: 'admin@acme.com',
+      email: 'admin@techviewai.com',
       name: 'Onkar Patil',
       passwordHash: adminHash,
       role: 'SUPER_ADMIN',
@@ -44,10 +44,10 @@ async function main() {
 
   // Project Admin — manages Billing & CRM projects only
   const agent1 = await prisma.user.upsert({
-    where: { email: 'priya@acme.com' },
+    where: { email: 'priya@techviewai.com' },
     update: {},
     create: {
-      email: 'priya@acme.com',
+      email: 'priya@techviewai.com',
       name: 'Priya Sharma',
       passwordHash: agentHash,
       role: 'ADMIN',
@@ -57,10 +57,10 @@ async function main() {
 
   // Agent — assigned to specific projects
   const agent2 = await prisma.user.upsert({
-    where: { email: 'rahul@acme.com' },
+    where: { email: 'rahul@techviewai.com' },
     update: {},
     create: {
-      email: 'rahul@acme.com',
+      email: 'rahul@techviewai.com',
       name: 'Rahul Mehta',
       passwordHash: agentHash,
       role: 'AGENT',
@@ -69,10 +69,10 @@ async function main() {
   });
 
   const viewer = await prisma.user.upsert({
-    where: { email: 'viewer@acme.com' },
+    where: { email: 'viewer@techviewai.com' },
     update: {},
     create: {
-      email: 'viewer@acme.com',
+      email: 'viewer@techviewai.com',
       name: 'Demo Viewer',
       passwordHash: viewerHash,
       role: 'VIEWER',
@@ -625,9 +625,9 @@ async function main() {
     { level: 'WARN' as const, category: 'api', projectId: pCRM, message: 'Slow API response: GET /api/deals/pipeline took 4.8s (threshold: 3s)', source: 'PerformanceMonitor', endpoint: 'GET /api/deals/pipeline', analyzed: false, emailSent: false, createdAt: t(6) },
 
     // ─── AUTHENTICATION / SECURITY ERRORS ───
-    { level: 'WARN' as const, category: 'auth', message: 'JWT token expired for user priya@acme.com — forcing re-auth', source: 'AuthMiddleware', endpoint: 'GET /api/tickets', analyzed: false, emailSent: false, createdAt: t(12) },
+    { level: 'WARN' as const, category: 'auth', message: 'JWT token expired for user priya@techviewai.com — forcing re-auth', source: 'AuthMiddleware', endpoint: 'GET /api/tickets', analyzed: false, emailSent: false, createdAt: t(12) },
     { level: 'ERROR' as const, category: 'auth', message: 'Invalid API key: sk_live_expired123... — deactivated', source: 'ApiKeyAuth', endpoint: 'POST /api/sdk/identify', aiAnalysis: 'External app used a deactivated key.', aiSuggestion: '1. Check Integrations for disabled keys\n2. Generate new key\n3. Update external app', analyzed: true, emailSent: false, createdAt: t(9) },
-    { level: 'WARN' as const, category: 'auth', message: 'Brute force detected: 15 failed logins for admin@acme.com from IP 198.51.100.7', source: 'AuthService', endpoint: 'POST /api/auth/login', aiAnalysis: 'Multiple failed login attempts. Possible brute force.', aiSuggestion: '1. Block IP 30 min\n2. Alert user\n3. Add CAPTCHA\n4. IP rate limit on login', analyzed: true, emailSent: true, createdAt: t(15) },
+    { level: 'WARN' as const, category: 'auth', message: 'Brute force detected: 15 failed logins for admin@techviewai.com from IP 198.51.100.7', source: 'AuthService', endpoint: 'POST /api/auth/login', aiAnalysis: 'Multiple failed login attempts. Possible brute force.', aiSuggestion: '1. Block IP 30 min\n2. Alert user\n3. Add CAPTCHA\n4. IP rate limit on login', analyzed: true, emailSent: true, createdAt: t(15) },
 
     // ─── CORS ERRORS ───
     { level: 'ERROR' as const, category: 'cors', message: 'CORS blocked: Origin https://malicious-site.com not in allowed origins', source: 'CorsMiddleware', endpoint: 'POST /api/sdk/track', aiAnalysis: 'Origin not in API key allowed list. Expected security behavior.', aiSuggestion: '1. Add domain to API key allowed origins if legitimate\n2. Investigate if suspicious\n3. Rotate API key if compromised', analyzed: true, emailSent: false, createdAt: t(10) },
@@ -684,9 +684,9 @@ async function main() {
       organizationId: org.id,
       smtpHost: 'smtp.gmail.com',
       smtpPort: 587,
-      smtpUser: 'alerts@acme.com',
+      smtpUser: 'alerts@techviewai.com',
       smtpPassEnc: '',
-      adminEmails: ['admin@acme.com', 'oncall@acme.com'],
+      adminEmails: ['admin@techviewai.com', 'oncall@techviewai.com'],
       notifyOnError: true,
       notifyOnFatal: true,
       digestEnabled: true,
@@ -701,13 +701,13 @@ async function main() {
   console.log('  SEED COMPLETE');
   console.log('===========================================');
   console.log('');
-  console.log('  Organization : Acme Corporation (PRO plan)');
+  console.log('  Organization : TechviewAI Corp (PRO plan)');
   console.log('');
   console.log('  Users:');
-  console.log('    admin@acme.com  / admin123  (SUPER_ADMIN)');
-  console.log('    priya@acme.com  / agent123  (ADMIN — Billing & CRM projects)');
-  console.log('    rahul@acme.com  / agent123  (AGENT)');
-  console.log('    viewer@acme.com / viewer123 (VIEWER)');
+  console.log('    admin@techviewai.com  / admin123  (SUPER_ADMIN)');
+  console.log('    priya@techviewai.com  / agent123  (ADMIN — Billing & CRM projects)');
+  console.log('    rahul@techviewai.com  / agent123  (AGENT)');
+  console.log('    viewer@techviewai.com / viewer123 (VIEWER)');
   console.log('');
   console.log('  CRM Data:');
   console.log('    3 Projects (Billing, CRM Migration, Mobile App)');
@@ -726,7 +726,7 @@ async function main() {
   console.log('    Email settings configured');
   console.log('');
   console.log('  Open: http://localhost:5173');
-  console.log('  Login: admin@acme.com / admin123');
+  console.log('  Login: admin@techviewai.com / admin123');
   console.log('===========================================\n');
 }
 
