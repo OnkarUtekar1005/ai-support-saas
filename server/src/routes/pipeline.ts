@@ -162,11 +162,17 @@ pipelineRoutes.delete('/:id', async (req: AuthRequest, res: Response) => {
 // Reject pipeline
 pipelineRoutes.post('/:id/reject', async (req: AuthRequest, res: Response) => {
   const { reason } = req.body;
-  await prisma.pipeline.update({
+  const updated = await prisma.pipeline.update({
     where: { id: req.params.id },
     data: { status: 'REJECTED', rejectedReason: reason || 'Rejected by admin' },
+    select: { errorLogId: true },
   });
   await addLog(req.params.id, 'REJECTED', reason || 'Rejected by admin');
+
+  if (updated.errorLogId) {
+    await prisma.errorLog.deleteMany({ where: { id: updated.errorLogId } });
+  }
+
   res.json({ ok: true });
 });
 

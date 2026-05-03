@@ -115,6 +115,17 @@ agentWebhookRoutes.post('/report', async (req: Request, res: Response) => {
 
   await prisma.pipeline.update({ where: { id: pipelineId }, data });
 
+  // Remove the source error log once the fix is deployed (resolved)
+  if (stage === 'DEPLOYED') {
+    const pipe = await prisma.pipeline.findUnique({
+      where: { id: pipelineId },
+      select: { errorLogId: true },
+    });
+    if (pipe?.errorLogId) {
+      await prisma.errorLog.deleteMany({ where: { id: pipe.errorLogId } });
+    }
+  }
+
   // If fix is proposed, send email + set awaiting approval
   if (stage === 'FIX_PROPOSED' || stage === 'AWAITING_APPROVAL') {
     const pipeline = await prisma.pipeline.findUnique({
