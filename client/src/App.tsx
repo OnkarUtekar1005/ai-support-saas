@@ -1,4 +1,6 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+﻿import { Routes, Route, Navigate } from 'react-router-dom';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClient } from './lib/queryClient';
 import { useAuth } from './hooks/useAuth';
 import { AppLayout } from './components/layout/AppLayout';
 import { LoginPage } from './pages/LoginPage';
@@ -13,7 +15,7 @@ import { ProjectsPage } from './pages/ProjectsPage';
 import { ProjectDetailPage } from './pages/ProjectDetailPage';
 import { ContactsPage } from './pages/ContactsPage';
 import { CompaniesPage } from './pages/CompaniesPage';
-import { DealsPage } from './pages/DealsPage';
+import { InvoicesPage } from './pages/InvoicesPage';
 import { ActivitiesPage } from './pages/ActivitiesPage';
 import { IntegrationsPage } from './pages/IntegrationsPage';
 import { ChatbotConfigPage } from './pages/ChatbotConfigPage';
@@ -31,13 +33,13 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-export function App() {
+function AppRoutes() {
   const { user, loading } = useAuth();
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-sky-600" />
       </div>
     );
   }
@@ -58,7 +60,7 @@ export function App() {
         <Route path="projects/:id" element={<ProjectDetailPage />} />
         <Route path="contacts" element={<ContactsPage />} />
         <Route path="companies" element={<CompaniesPage />} />
-        <Route path="deals" element={<DealsPage />} />
+        <Route path="invoices" element={<InvoicesPage />} />
         <Route path="activities" element={<ActivitiesPage />} />
         {/* Admin */}
         <Route path="chatbot" element={<ChatbotConfigPage />} />
@@ -72,5 +74,13 @@ export function App() {
         <Route path="settings" element={<SettingsPage />} />
       </Route>
     </Routes>
+  );
+}
+
+export function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AppRoutes />
+    </QueryClientProvider>
   );
 }

@@ -1,595 +1,601 @@
 # CRM of Techview — Error Logging System
 
-Complete documentation of how errors are captured, analyzed, and acted upon.
+**Version:** 2.1.0
+**Last Updated:** 2026-04-30
+
+Complete documentation of how errors are currently captured, analyzed, and acted upon — plus a detailed improvement plan for batch processing, noise reduction, and fix tracking.
 
 ---
 
-## Overview
+## Table of Contents
 
-The error logging system captures errors from **any connected application**, analyzes them with **Gemini AI**, alerts the **admin team via email**, and optionally triggers the **Auto-Fix Pipeline** to have Claude Code fix and deploy the solution.
-
-```
-Your App (any platform)
-     │
-     │  POST /api/sdk/error + API key
-     ▼
-┌─────────────────────────────────────────────────┐
-│              API Key Middleware                   │
-│  Validates key → extracts org + project          │
-└─────────────────────┬───────────────────────────┘
-                      │
-                      ▼
-┌─────────────────────────────────────────────────┐
-│              ErrorLogger.logError()              │
-│                                                  │
-│  1. Winston     → logs/error.log (immediate)     │
-│  2. Database    → ErrorLog table (immediate)     │
-│  3. Gemini AI   → root cause analysis (async)    │
-│  4. Email       → admin alert with AI fix (async)│
-└─────────────────────┬───────────────────────────┘
-                      │
-                      ▼
-┌─────────────────────────────────────────────────┐
-│         CRM Dashboard — Error Logs Page          │
-│  Filter by: project, category, level, analyzed   │
-│  Actions: Re-analyze, Auto-Fix with Claude Code  │
-└─────────────────────────────────────────────────┘
-```
+1. [How the Current System Works](#1-how-the-current-system-works)
+2. [Entry Points — How Errors Enter](#2-entry-points--how-errors-enter)
+3. [The Ingestion Pipeline (Step by Step)](#3-the-ingestion-pipeline-step-by-step)
+4. [What IS and IS NOT Stored in the Database](#4-what-is-and-is-not-stored-in-the-database)
+5. [Error Deduplication — Fingerprinting](#5-error-deduplication--fingerprinting)
+6. [Connecting Your Application](#6-connecting-your-application)
+7. [CRM Admin Actions](#7-crm-admin-actions)
+8. [Error Categories](#8-error-categories)
+9. [Improvement Plan](#9-improvement-plan)
+   - [9.1 Batch Processing](#91-batch-processing)
+   - [9.2 Smart Noise Reduction](#92-smart-noise-reduction)
+   - [9.3 Fix Tracking — Who Fixed It, When, and How](#93-fix-tracking--who-fixed-it-when-and-how)
+   - [9.4 Error Lifecycle States](#94-error-lifecycle-states)
+   - [9.5 Implementation Roadmap](#95-implementation-roadmap)
 
 ---
 
-## How Errors Enter the System
+## 1. How the Current System Works
 
-### Entry Point 1: External Apps via SDK (API Key Auth)
-
-Any website, mobile app, or server sends errors using an API key.
-
-**HTTP Request:**
 ```
-POST /api/sdk/error
+Your App (any platform / language)
+         │
+         │  POST /api/sdk/errors  (with API key)
+         │  OR  window.onerror captured by SDK script
+         │  OR  internal CRM route throws an exception
+         ▼
+┌────────────────────────────────────────────┐
+│  ErrorLogger.logError()                    │
+│                                            │
+│  1. Winston → logs/error.log (immediate)   │
+│  2. ErrorIngestionService.ingest()         │
+│      ├─ SHA256 fingerprint (dedup key)     │
+│      ├─ Circular buffer (memory, 2000)     │
+│      ├─ Daily rotating log file (disk)     │
+│      └─ Async: Gemini analysis + email     │
+└────────────────────────────────────────────┘
+         │
+         ▼
+┌────────────────────────────────────────────┐
+│  CRM Dashboard — Error Logs Page           │
+│  ┌──────────────────────────────────────┐  │
+│  │  Reads from: in-memory buffer        │  │
+│  │  Filters: level, category, project   │  │
+│  │  Actions: Re-analyze, Auto-Fix       │  │
+│  └──────────────────────────────────────┘  │
+└────────────────────────────────────────────┘
+```
+
+**Key architectural fact:** Errors are stored in **memory + log files only**. There is NO database write for error logs. The `ErrorLog` table in the Prisma schema exists but is not currently used by the main ingestion path. This means:
+- Fast ingestion (no DB round-trip on every error)
+- Errors survive application restarts only via log file rebuild (`rebuildFromLogs()` on startup reads today's log file back into memory)
+- Memory cap: 2,000 errors in the circular buffer per server instance
+- Dashboard shows data from the in-memory buffer, not from a database query
+
+---
+
+## 2. Entry Points — How Errors Enter
+
+### Entry Point 1: External Apps via REST API (API Key Auth)
+
+Any app in any language sends errors via HTTP:
+
+```
+POST /api/sdk/errors
 Headers: { x-api-key: sk_live_YOUR_KEY }
-Body: {
-  "message": "TypeError: Cannot read properties of null",
-  "stack": "TypeError: Cannot read properties of null\n    at checkout.js:42",
-  "source": "checkout-service",
-  "level": "ERROR",
-  "endpoint": "/api/checkout",
-  "email": "user@example.com"
+Body:
+{
+  "level":    "ERROR",
+  "message":  "TypeError: Cannot read properties of null (reading 'userId')",
+  "stack":    "TypeError: Cannot read...\n    at checkout.js:42:5",
+  "source":   "checkout-service",
+  "endpoint": "POST /api/checkout",
+  "language": "javascript",
+  "framework": "express",
+  "environment": "production"
 }
 ```
 
-**What happens:**
-1. `apiKeyAuth` middleware validates the API key
-2. Extracts `organizationId` and `projectId` from the key
-3. Checks permissions (key must have `errors` permission)
-4. Checks allowed origins (for web requests)
-5. Calls `ErrorLogger.logError()` with org + project context
-
-**Code path:** `routes/sdk.ts` → `apiKeyAuth middleware` → `ErrorLogger.logError()`
+**Auth flow:**
+1. `apiKeyAuth` middleware reads `x-api-key` header
+2. Looks up key in DB → extracts `organizationId` and `projectId`
+3. Verifies key has `errors` permission and origin is allowed
+4. Calls `ErrorLogger.logError()` with the extracted org/project context
 
 ### Entry Point 2: Auto-Captured Frontend Errors (SDK Script)
 
-When you add the SDK script to a website:
+Add one line to any website:
 ```html
-<script src="http://your-crm.com/sdk.js?key=sk_live_YOUR_KEY"></script>
+<script src="https://your-crm.com/sdk.js?key=sk_live_YOUR_KEY"></script>
 ```
 
 The SDK automatically captures:
 - `window.onerror` — all uncaught JavaScript errors
-- `unhandledrejection` — unhandled Promise rejections
-- Page views (optional)
+- `window.unhandledrejection` — unhandled Promise rejections
+- Sends via `navigator.sendBeacon()` (non-blocking, survives page unload)
 
-No code needed — errors are sent automatically via `navigator.sendBeacon()`.
+No additional code needed.
 
 ### Entry Point 3: CRM Internal Errors (JWT Auth)
 
-When the CRM itself encounters errors in any route:
-
-```
-Express route throws error
-     │
-     ▼
-Global errorHandler middleware catches it
-     │
-     ▼
-ErrorLogger.logError({
-  level: 'ERROR',
-  message: err.message,
-  stack: err.stack,
-  source: 'express-middleware',
-  endpoint: 'POST /api/tickets',
-  userId: req.user.id,
-  organizationId: req.user.organizationId
-})
-```
-
-**Code path:** `middleware/errorHandler.ts` → `ErrorLogger.logError()`
-
-### Entry Point 4: Route-Level Catch Blocks
-
-Individual routes catch their own errors:
-
+When the CRM itself throws an unhandled error in a route:
 ```typescript
-// In routes/tickets.ts, chat.ts, deals.ts, etc.
-try {
-  // route logic
+// In any route file (tickets.ts, chat.ts, deals.ts, etc.)
 } catch (err) {
   await ErrorLogger.logError({
     level: 'ERROR',
-    message: err.message,
-    stack: err.stack,
+    message: (err as Error).message,
+    stack: (err as Error).stack,
     source: 'tickets-create',
     endpoint: 'POST /api/tickets',
-    organizationId: req.user.organizationId,
-    userId: req.user.id,
+    organizationId: req.user!.organizationId,
+    userId: req.user!.id,
   });
-  res.status(500).json({ error: 'Failed' });
+  res.status(500).json({ error: 'Failed to create ticket' });
 }
 ```
 
 ---
 
-## The ErrorLogger Pipeline
+## 3. The Ingestion Pipeline (Step by Step)
 
-### Step 1: Winston File Logging (Immediate)
+### Step 1: Winston File Logging (Immediate, Synchronous)
 
-```typescript
-winstonLogger.log(level, message, { source, endpoint, stack });
+```
+logs/error.log      ← ERROR and FATAL level only
+logs/combined.log   ← all levels (INFO, WARN, ERROR, FATAL)
+Console             ← in development only
 ```
 
-Writes to:
-- `logs/error.log` — ERROR and above only
-- `logs/combined.log` — all levels
-- Console — in development mode only
+This happens synchronously before anything else. Even if everything else fails (memory full, Gemini down, network issue), the error is on disk.
 
-This happens **synchronously and immediately** — even if the database is down, the error is recorded to disk.
-
-### Step 2: Database Insert (Immediate)
+### Step 2: Fingerprint Generation
 
 ```typescript
-prisma.errorLog.create({
-  data: {
-    level,          // INFO | WARN | ERROR | FATAL
-    message,        // "ECONNREFUSED: Redis cache failed"
-    stack,          // full stack trace
-    source,         // "CacheService" or "sdk-My Website"
-    category,       // "database", "api", "auth", "network", etc.
-    endpoint,       // "POST /api/tickets"
-    userId,         // who triggered it (if known)
-    projectId,      // which project/system (from API key)
-    organizationId, // which organization
-    requestData,    // sanitized request body (no passwords)
-  }
-})
+const fingerprint = SHA256(message + source + (first 5 lines of stack))
+// Example: "a3f7b1c2d4e5..."
 ```
 
-The error is now:
-- Visible in CRM → Error Logs page
-- Filterable by project, category, level
-- Searchable by the AI Assistant
-- Available for the Auto-Fix Pipeline
+The fingerprint is the **unique identity of an error type** — not of a specific occurrence. Two different requests hitting the same null-reference bug in the same function will have the same fingerprint. This enables:
+- Deduplication (count occurrences instead of creating duplicate records)
+- Regression detection (same error fingerprint appearing again after a fix)
 
-### Step 3: Gemini AI Analysis (Async, Non-Blocking)
+### Step 3: In-Memory Deduplication
 
-Only triggered for **ERROR** and **FATAL** levels. Runs in the background — does not slow down the error response.
+```
+Is this fingerprint already in the cache?
+  YES → increment count, update lastSeen timestamp → done (no Gemini call)
+  NO  → add to cache, add to circular buffer, trigger async analysis
+```
+
+The fingerprint cache is a `Map<fingerprint, FingerprintEntry>` stored in the singleton `ErrorIngestionService`. It persists for the lifetime of the server process.
+
+### Step 4: Circular Buffer
+
+A fixed-size circular buffer (2,000 entries) stores the recent error entries per server. When it's full, the oldest entry is dropped. This is what powers the dashboard's "Recent Errors" view.
+
+**Limitation:** On server restart, the buffer is rebuilt by reading today's log file. Errors older than today are not loaded back.
+
+### Step 5: Daily Rotating Log File
+
+```
+logs/errors/{organizationId}/{YYYY-MM-DD}.jsonl
+```
+
+Each line is a JSON-encoded error entry. The file rotates daily. This provides a persistent record beyond the in-memory buffer.
+
+### Step 6: Async Gemini Analysis (only for new fingerprints, ERROR/FATAL only)
 
 ```typescript
-// Only for ERROR and FATAL
-if (level === 'ERROR' || level === 'FATAL') {
-  ErrorLogger.analyzeAndNotify(errorLogId, input);  // fire and forget
+// Fires only when isNew === true AND level is ERROR or FATAL
+if (isNew && (level === 'ERROR' || level === 'FATAL')) {
+  this.analyzeNewError(fp, input).catch(() => {});
 }
 ```
 
-**What Gemini receives:**
-```
-You are an expert DevOps engineer. Analyze this error:
-
-- Message: ECONNREFUSED: Redis cache failed at 10.0.1.50:6379
-- Source: CacheService
-- Endpoint: GET /api/tickets
-- Stack Trace: Error: connect ECONNREFUSED 10.0.1.50:6379
-    at TCPConnectWrap.afterConnect (net.js:1141:16)
-    at CacheService.get (src/services/cache/CacheService.ts:45:11)
-
-Respond in JSON: { rootCause, suggestion, severity, category }
-```
-
-**What Gemini returns:**
+Gemini receives: error message, stack trace, source, and endpoint. Returns:
 ```json
 {
-  "rootCause": "Redis cache server at 10.0.1.50:6379 is unreachable. Service may be down or firewall blocking port 6379.",
-  "suggestion": "1. Check Redis status: systemctl status redis\n2. Test connectivity: telnet 10.0.1.50 6379\n3. Add cache fallback for degraded mode",
-  "severity": "high",
-  "category": "network"
+  "rootCause": "The user.id property is accessed before authentication middleware runs...",
+  "suggestion": "Move the auth middleware before the route handler...",
+  "category": "code"
 }
 ```
 
-**Database updated:**
-```sql
-UPDATE "ErrorLog"
-SET aiAnalysis = 'Redis cache server is unreachable...',
-    aiSuggestion = '1. Check Redis status...',
-    analyzed = true
-WHERE id = 'error-uuid';
-```
+The fingerprint cache entry is updated with the analysis. All existing buffer entries with the same fingerprint are also updated (so the dashboard shows the analysis retroactively).
 
-### Step 4: Email Alert (Async, Conditional)
+### Step 7: Email Alert (conditional, async)
 
-Only sends if:
-- Level is ERROR **and** org has `notifyOnError = true`
-- OR level is FATAL **and** org has `notifyOnFatal = true`
-- AND org has at least one admin email configured
+Fires only if:
+- Level is ERROR and org has `notifyOnError = true`
+- OR level is FATAL and org has `notifyOnFatal = true`
+- AND org has at least one admin email configured in Email Settings
+
+Email contains the error message, source, endpoint, timestamp, Gemini root cause, and Gemini suggested fix.
+
+---
+
+## 4. What IS and IS NOT Stored in the Database
+
+| Data | Stored Where | Notes |
+|------|-------------|-------|
+| Error events (individual) | Log file (JSONL) + memory buffer | NOT in PostgreSQL ErrorLog table |
+| Fingerprint dedup cache | In-memory Map | Rebuilt from log files on restart |
+| Error stats (counts by level/source) | In-memory Map | Reset on restart |
+| Gemini analysis results | In-memory (on fingerprint entry) | NOT persisted to DB |
+| Email alerts sent | In-memory flag | NOT persisted to DB |
+| Pipelines triggered from errors | **PostgreSQL Pipeline table** | Persisted (this IS in DB) |
+| API keys for SDK auth | **PostgreSQL ApiKey table** | Persisted |
+
+**Why no DB writes?** Speed. Writing to PostgreSQL on every error adds a DB round-trip on the critical ingestion path. The current design optimizes for throughput (high-volume error ingestion) at the cost of persistence guarantees.
+
+---
+
+## 5. Error Deduplication — Fingerprinting
+
+The fingerprint is computed from:
+- First 100 characters of the error message
+- Source module name
+- First 5 non-empty lines of the stack trace
 
 ```typescript
-// Check email settings for this organization
-const emailSettings = await prisma.emailSettings.findUnique({
-  where: { organizationId }
-});
-
-const shouldNotify =
-  emailSettings &&
-  ((level === 'ERROR' && emailSettings.notifyOnError) ||
-   (level === 'FATAL' && emailSettings.notifyOnFatal));
-
-if (shouldNotify && emailSettings.adminEmails.length > 0) {
-  await EmailService.sendErrorAlert({ ... });
-}
+// From ErrorFingerprint.ts
+SHA256(message.substring(0, 100) + '|' + source + '|' + stackLines.join('|'))
 ```
 
-**Email contains:**
-- Error level badge (red for FATAL, amber for ERROR)
-- Error message and source
-- Endpoint that triggered it
-- Timestamp
-- AI Root Cause Analysis (from Gemini)
-- AI Suggested Fix (from Gemini)
+**What this catches:**
+- Same null-reference error firing 1,000 times per hour → counted once, occurrence count = 1,000
+- Same error from two different users → same fingerprint (same code bug)
+- Same error message from different sources → different fingerprints
+
+**What this misses:**
+- Errors with dynamic IDs in the message (`"User 12345 not found"` vs `"User 67890 not found"`) → these create separate fingerprints even though they're the same bug. Consider normalizing messages before fingerprinting.
 
 ---
 
-## API Key Middleware — How Authentication Works
+## 6. Connecting Your Application
 
-Every external error goes through the API key middleware:
-
-```
-POST /api/sdk/error
-     │
-     ▼
-┌─────────────────────────────────────────────┐
-│ Step 1: EXTRACT KEY                          │
-│ Read from: x-api-key header OR ?_key= param  │
-│ If missing → 401 "API key required"          │
-└─────────────────────┬───────────────────────┘
-                      │
-                      ▼
-┌─────────────────────────────────────────────┐
-│ Step 2: LOOKUP IN DATABASE                   │
-│ SELECT * FROM ApiKey WHERE key = 'sk_live_…' │
-│ If not found or inactive → 401 "Invalid key" │
-│                                              │
-│ Found: {                                     │
-│   organizationId: "acme-org-uuid",           │
-│   projectId: "billing-project-uuid",         │
-│   permissions: ["errors", "contacts"],       │
-│   allowedOrigins: ["https://myapp.com"],     │
-│   isActive: true                             │
-│ }                                            │
-└─────────────────────┬───────────────────────┘
-                      │
-                      ▼
-┌─────────────────────────────────────────────┐
-│ Step 3: CHECK ORIGIN (web only)              │
-│ Request from https://myapp.com?              │
-│ Is it in allowedOrigins? → ✓ pass            │
-│ Is it https://hacker.com? → ✗ 403 blocked    │
-│ No origins configured? → allow all           │
-└─────────────────────┬───────────────────────┘
-                      │
-                      ▼
-┌─────────────────────────────────────────────┐
-│ Step 4: CHECK PERMISSION                     │
-│ Route requires: "errors"                     │
-│ Key has: ["errors", "contacts"] → ✓ pass     │
-│ Key has: ["contacts"] only → ✗ 403 denied    │
-└─────────────────────┬───────────────────────┘
-                      │
-                      ▼
-┌─────────────────────────────────────────────┐
-│ Step 5: ATTACH CONTEXT TO REQUEST            │
-│ req.apiKey = {                               │
-│   id, name, platform,                        │
-│   organizationId,  ← WHO owns this           │
-│   projectId,       ← WHICH system            │
-│   permissions      ← WHAT they can do        │
-│ }                                            │
-└─────────────────────┬───────────────────────┘
-                      │
-                      ▼
-┌─────────────────────────────────────────────┐
-│ Step 6: UPDATE USAGE STATS (non-blocking)    │
-│ UPDATE ApiKey SET                            │
-│   lastUsedAt = NOW(),                        │
-│   usageCount = usageCount + 1                │
-└─────────────────────┬───────────────────────┘
-                      │
-                      ▼
-              Route handler runs
-         (ErrorLogger.logError() called
-          with org + project from req.apiKey)
-```
-
----
-
-## Error Log Database Schema
-
-```sql
-ErrorLog {
-  id              UUID        PRIMARY KEY
-  level           ENUM        INFO | WARN | ERROR | FATAL
-  message         TEXT        "ECONNREFUSED: Redis failed..."
-  stack           TEXT?       full stack trace
-  source          VARCHAR     "CacheService", "sdk-My Website"
-  category        VARCHAR?    "database", "api", "auth", "cors", "timeout",
-                              "code", "network", "email", "memory",
-                              "validation", "frontend", "disk"
-  endpoint        VARCHAR?    "POST /api/tickets"
-  userId          VARCHAR?    user who triggered it
-  projectId       UUID? ───→  Project (which system)
-  requestData     JSON?       sanitized request body
-  aiAnalysis      TEXT?       Gemini root cause
-  aiSuggestion    TEXT?       Gemini fix suggestion
-  analyzed        BOOLEAN     false → true (after Gemini)
-  emailSent       BOOLEAN     true if admin was notified
-  organizationId  UUID  ───→  Organization (tenant)
-  createdAt       TIMESTAMP
-
-  INDEXES:
-    (organizationId, createdAt)  — paginated queries
-    (level)                      — filter by severity
-    (analyzed)                   — find unanalyzed errors
-    (projectId)                  — filter by system
-    (category)                   — filter by error type
-}
-```
-
----
-
-## Error Categories
-
-| Category | Examples | Typical Sources |
-|----------|----------|-----------------|
-| `database` | Connection pool exhausted, query timeout, constraint violation, missing table | SqlConnector, PrismaORM, PostgreSQL |
-| `api` | Rate limit 429, webhook delivery failed, slow response | RateLimiter, GeminiClient, WebhookService |
-| `auth` | JWT expired, invalid API key, brute force detected | AuthMiddleware, ApiKeyAuth, AuthService |
-| `cors` | Origin blocked, cross-origin request denied | CorsMiddleware |
-| `timeout` | Request exceeded 30s, socket handshake timeout | TimeoutMiddleware, SocketIO |
-| `code` | TypeError, SyntaxError, RangeError, undefined property access | Any source file |
-| `network` | ECONNREFUSED, ETIMEDOUT, DNS ENOTFOUND | CacheService, PaymentService, CurrencyService |
-| `email` | SMTP auth failed, delivery throttled | EmailService |
-| `memory` | Heap out of memory, allocation failed | VectorStore, any batch process |
-| `validation` | Missing required field, invalid value | ValidationMiddleware |
-| `frontend` | Uncaught TypeError, unhandled promise rejection (from SDK) | sdk-web, widget |
-| `disk` | ENOSPC no space left on device | WinstonLogger, file uploads |
-
----
-
-## Connecting Your Application
-
-### Website / Web App — Automatic
-
-```html
-<!-- Add before </body> — errors captured automatically -->
-<script src="http://your-crm.com/sdk.js?key=sk_live_YOUR_KEY"></script>
-```
-
-Captures: `window.onerror`, `unhandledrejection`, page views.
-
-### Node.js Backend — Global Catch
+### Node.js / Express
 
 ```javascript
-const CRM_URL = 'http://your-crm.com/api/sdk/error';
+const CRM_URL = 'https://your-crm.com/api/sdk/errors';
 const API_KEY = 'sk_live_YOUR_KEY';
 
-function logToCRM(level, message, stack, source, endpoint) {
-  fetch(CRM_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-    body: JSON.stringify({ level, message, stack, source, endpoint })
-  }).catch(() => {});  // Don't let CRM errors crash your app
+async function logError(level, message, options = {}) {
+  try {
+    await fetch(CRM_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+      body: JSON.stringify({ level, message, ...options }),
+    });
+  } catch {} // never let CRM errors affect your app
 }
 
-// Catch ALL uncaught errors
-process.on('uncaughtException', (err) => {
-  logToCRM('FATAL', err.message, err.stack, 'your-app', null);
-});
+// Catch everything
+process.on('uncaughtException', (err) => logError('FATAL', err.message, { stack: err.stack, source: 'process' }));
+process.on('unhandledRejection', (reason) => logError('ERROR', String(reason), { source: 'promise' }));
 
-process.on('unhandledRejection', (reason) => {
-  logToCRM('ERROR', String(reason), reason?.stack, 'your-app', null);
-});
-
-// In Express middleware
+// Express middleware
 app.use((err, req, res, next) => {
-  logToCRM('ERROR', err.message, err.stack, 'express', req.method + ' ' + req.path);
+  logError('ERROR', err.message, { stack: err.stack, source: 'express', endpoint: req.path });
   res.status(500).json({ error: 'Internal error' });
 });
 ```
 
-### Python Backend
+### Python / Django or Flask
 
 ```python
-import requests, traceback
+import requests, traceback, threading
 
-CRM_URL = "http://your-crm.com/api/sdk/error"
+CRM_URL = "https://your-crm.com/api/sdk/errors"
 API_KEY = "sk_live_YOUR_KEY"
 
-def log_to_crm(level, message, source, endpoint=None):
-    try:
-        requests.post(CRM_URL, json={
-            "level": level,
-            "message": message,
-            "stack": traceback.format_exc(),
-            "source": source,
-            "endpoint": endpoint
-        }, headers={"x-api-key": API_KEY}, timeout=5)
-    except:
-        pass  # Don't let CRM errors affect your app
-
-# In Flask
-@app.errorhandler(Exception)
-def handle_error(e):
-    log_to_crm("ERROR", str(e), "flask-app", request.path)
-    return {"error": "Internal error"}, 500
+def log_error(level, message, source, endpoint=None, stack=None):
+    def _send():
+        try:
+            requests.post(CRM_URL, json={
+                "level": level, "message": message,
+                "stack": stack or traceback.format_exc(),
+                "source": source, "endpoint": endpoint
+            }, headers={"x-api-key": API_KEY}, timeout=3)
+        except: pass
+    threading.Thread(target=_send, daemon=True).start()  # non-blocking
 ```
 
-### React Native / Mobile
+### React / Next.js Frontend
 
 ```javascript
-// Global error handler
-ErrorUtils.setGlobalHandler((error) => {
-  fetch('http://your-crm.com/api/sdk/error', {
+// pages/_app.js or main.tsx
+window.addEventListener('error', (event) => {
+  fetch('/api/sdk/errors', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': 'sk_live_YOUR_KEY' },
     body: JSON.stringify({
-      message: error.message,
-      stack: error.stack,
-      source: 'mobile-app',
-      level: 'FATAL'
-    })
+      level: 'ERROR',
+      message: event.message,
+      stack: event.error?.stack,
+      source: 'react-frontend',
+      endpoint: window.location.pathname,
+    }),
   }).catch(() => {});
 });
 ```
 
 ---
 
-## CRM Admin Actions on Error Logs
+## 7. CRM Admin Actions
 
-### View & Filter
-- Filter by **level** (INFO, WARN, ERROR, FATAL)
-- Filter by **category** (database, api, auth, network, etc.)
-- Filter by **project/system** (which app generated it)
-- Filter by **analyzed/unanalyzed** (Gemini processed or not)
-
-### Analyze
-- Click **"Analyze with AI"** to send an unanalyzed error to Gemini
-- Click **"AI Trend Analysis"** to find patterns across recent errors
-
-### Auto-Fix
-- Click **"Auto-Fix with Claude Code"** (purple button)
-- Creates a Pipeline:
-  1. Sends error + Gemini analysis to VPS Agent
-  2. Claude Code CLI analyzes the codebase
-  3. Claude proposes a fix
-  4. Admin reviews and approves
-  5. Claude applies the fix, commits, deploys
+| Action | Where | What Happens |
+|--------|-------|-------------|
+| **View errors** | Error Logs page | Reads in-memory buffer, filtered by level/category/project |
+| **Re-analyze** | Error detail → "Re-analyze" | Sends error to Gemini again, updates in-memory cache |
+| **Trend Analysis** | Error Logs → "AI Trend Analysis" | Reads log files for last N hours, Gemini finds patterns |
+| **Auto-Fix** | Error detail → "Auto-Fix with Claude Code" | Creates Pipeline record in DB, triggers orchestrator |
 
 ---
 
-## Email Alert Format
+## 8. Error Categories
 
-When an ERROR or FATAL is logged (and email is configured):
+| Category | Triggers | Auto-Fix Eligible? |
+|----------|----------|-------------------|
+| `code` | TypeError, null ref, SyntaxError, unhandled exceptions | ✅ Yes |
+| `database` | ECONNREFUSED, query timeout, constraint violation | ✅ Yes |
+| `network` | ETIMEDOUT, ENOTFOUND, webhook failure | ✅ Sometimes |
+| `api` | Rate limit 429, bad response from external API | ⚠️ Manual review |
+| `auth` | JWT expired, invalid key, brute force | ❌ No (security) |
+| `cors` | Origin blocked | ❌ No (config issue) |
+| `timeout` | Request > 30s, socket handshake timeout | ⚠️ Manual review |
+| `memory` | Heap OOM, allocation failure | ✅ Yes |
+| `email` | SMTP failure | ❌ No (config issue) |
+| `validation` | Missing required field | ❌ No (expected) |
+| `frontend` | window.onerror, unhandled rejection | ✅ Yes |
+| `disk` | ENOSPC | ❌ No (ops issue) |
 
+---
+
+## 9. Improvement Plan
+
+The following improvements address the main gaps in the current system: noise volume, data persistence, and fix tracking. These are **not yet implemented** — this section documents the design for future development.
+
+---
+
+### 9.1 Batch Processing
+
+**Current problem:** Every individual error occurrence triggers a separate write path (log file write, fingerprint cache update, potential Gemini call). In high-traffic systems this can generate thousands of identical error records per minute.
+
+**Proposed design: Buffered Batch Flusher**
+
+Instead of processing each error immediately, buffer incoming errors in memory and flush them in batches every 10 seconds or every 100 errors (whichever comes first):
+
+```typescript
+// New: BatchIngestionBuffer
+class BatchIngestionBuffer {
+  private pending: ErrorInput[] = [];
+  private readonly flushIntervalMs = 10_000;
+  private readonly maxBatchSize = 100;
+  private timer: NodeJS.Timeout;
+
+  constructor(private flush: (batch: ErrorInput[]) => Promise<void>) {
+    this.timer = setInterval(() => this.drain(), this.flushIntervalMs);
+  }
+
+  push(error: ErrorInput): void {
+    this.pending.push(error);
+    if (this.pending.length >= this.maxBatchSize) this.drain();
+  }
+
+  private async drain(): Promise<void> {
+    if (this.pending.length === 0) return;
+    const batch = this.pending.splice(0, this.maxBatchSize);
+    await this.flush(batch);
+  }
+}
 ```
-Subject: [ERROR] CacheService: ECONNREFUSED: Redis cache failed...
 
-┌─────────────────────────────────────┐
-│  🟡 ERROR Error Alert               │
-├─────────────────────────────────────┤
-│                                     │
-│  Error Message:                     │
-│  ┌─────────────────────────────┐    │
-│  │ ECONNREFUSED: Redis cache   │    │
-│  │ failed at 10.0.1.50:6379    │    │
-│  └─────────────────────────────┘    │
-│                                     │
-│  Source: CacheService               │
-│  Endpoint: GET /api/tickets         │
-│  Timestamp: 2026-03-22T10:30:00Z    │
-│                                     │
-│  ┌─ 🤖 AI Root Cause Analysis ───┐  │
-│  │ Redis cache server is          │  │
-│  │ unreachable. Service may be    │  │
-│  │ down or firewall blocking.     │  │
-│  └────────────────────────────────┘  │
-│                                     │
-│  ┌─ 💡 Suggested Fix ────────────┐  │
-│  │ 1. Check Redis: systemctl     │  │
-│  │    status redis               │  │
-│  │ 2. Test: telnet 10.0.1.50     │  │
-│  │    6379                       │  │
-│  │ 3. Add cache fallback         │  │
-│  └────────────────────────────────┘  │
-│                                     │
-│  AI Support SaaS — Error Monitoring │
-└─────────────────────────────────────┘
+**Batch flush logic:**
+1. Group by fingerprint → each unique fingerprint gets one record, with `occurrenceCount = N`
+2. Only trigger Gemini analysis for fingerprints not yet seen this session
+3. Write the collapsed batch to the log file and DB in a single transaction
+
+**Result:** 1,000 identical errors → 1 DB write + 1 Gemini call (instead of 1,000 writes and potentially 1,000 Gemini calls)
+
+---
+
+### 9.2 Smart Noise Reduction
+
+**Current problem:** Every error, no matter how minor, goes through the same pipeline. This floods the dashboard with INFO/WARN noise and makes it hard to find the real problems.
+
+**Proposed rules:**
+
+| Rule | Implementation |
+|------|---------------|
+| **Drop INFO/WARN from permanent storage** | Only ERROR and FATAL written to log files and DB. INFO/WARN still logged to Winston (console/file) but never reach the dashboard |
+| **Rate-cap per fingerprint** | If a fingerprint fires more than 50 times in 60 seconds, stop counting individual occurrences. Just update `lastSeen` and `occurrenceCount`. Only re-open the pipeline if the count crosses a configurable threshold |
+| **Ignore known noisy errors** | Add an org-level blocklist: patterns/sources that are known-good and should never alert |
+| **Cooldown after fix** | After a pipeline is marked DEPLOYED, suppress alerts for that fingerprint for 24 hours. If it comes back, flag as REGRESSION |
+
+**New `ErrorFilter` service:**
+```typescript
+class ErrorFilter {
+  shouldIngest(input: ErrorInput, fingerprintCache: Map<string, FingerprintEntry>): 'ingest' | 'count_only' | 'drop' {
+    if (input.level === 'INFO' || input.level === 'WARN') return 'drop';
+
+    const entry = fingerprintCache.get(fingerprint);
+    if (entry && entry.ratePerMinute > 50) return 'count_only';
+    if (this.isBlocklisted(input, orgBlocklist)) return 'drop';
+    if (entry?.fixedAt && this.withinCooldown(entry.fixedAt, 24)) return 'count_only';
+
+    return 'ingest';
+  }
+}
 ```
 
 ---
 
-## Configuration
+### 9.3 Fix Tracking — Who Fixed It, When, and How
 
-### Email Settings (CRM → Settings → Email Alerts)
+**Current problem:** There is no record of who fixed an error, when it was fixed, or which pipeline resolved it. After an error is auto-fixed by Claude Code, there's no link between the error fingerprint and the pipeline that resolved it.
 
-| Setting | Description |
-|---------|-------------|
-| SMTP Host | e.g. `smtp.gmail.com` |
-| SMTP Port | e.g. `587` |
-| SMTP User | Your email address |
-| SMTP Password | App password (not your main password) |
-| Admin Emails | List of emails to receive alerts |
-| Notify on ERROR | Send email for ERROR level (recommended: ON) |
-| Notify on FATAL | Send email for FATAL level (recommended: ON) |
-| Daily Digest | Send summary email daily at 9am |
+**Proposed schema additions to `ErrorLog` (when we persist errors to DB):**
 
-### API Key Settings (CRM → Integrations)
+```prisma
+model ErrorLog {
+  // ... existing fields ...
 
-| Setting | Description |
-|---------|-------------|
-| Name | Label for the key (e.g. "Production Website") |
-| Platform | web, ios, android, server |
-| Project | Which project errors are linked to |
-| Permissions | Must include `errors` for error logging |
-| Allowed Origins | Restrict which domains can use this key (web only) |
+  // Fix tracking
+  status          ErrorStatus  @default(OPEN)
+  fixedAt         DateTime?
+  fixedById       String?      // User who approved the fix or manually marked resolved
+  fixedByPipelineId String?    // Pipeline that auto-fixed it
+  fixNotes        String?      @db.Text  // Optional notes from the fixer
+  resolvedVersion String?      // e.g. "v2.3.1" or git commit hash
+
+  // Regression tracking
+  isRegression    Boolean      @default(false)
+  previousFixAt   DateTime?    // When the last fix happened before this regression
+  regressionCount Int          @default(0)
+
+  fixedBy       User?          @relation(fields: [fixedById], references: [id])
+  fixedByPipeline Pipeline?    @relation(fields: [fixedByPipelineId], references: [id])
+}
+
+enum ErrorStatus {
+  OPEN          // New, unacknowledged
+  ACKNOWLEDGED  // Seen by admin, not yet being worked on
+  IN_PROGRESS   // Pipeline running or someone is working on it
+  FIXED         // Fix applied and verified
+  WONT_FIX      // Acknowledged but intentionally not fixed (e.g. third-party issue)
+  REGRESSED     // Was fixed, came back
+}
+```
+
+**Fix tracking API endpoints (new):**
+
+```
+PATCH /api/error-logs/:fingerprint/acknowledge
+  Body: { notes?: string }
+  → Sets status: ACKNOWLEDGED, acknowledgedById, acknowledgedAt
+
+PATCH /api/error-logs/:fingerprint/fix
+  Body: { notes?: string, version?: string, pipelineId?: string }
+  → Sets status: FIXED, fixedAt: NOW(), fixedById: req.user.id
+  → Records fixNotes, resolvedVersion, fixedByPipelineId
+
+PATCH /api/error-logs/:fingerprint/wont-fix
+  Body: { reason: string }
+  → Sets status: WONT_FIX, fixNotes: reason
+
+GET /api/error-logs/:fingerprint/history
+  → Returns: all occurrences, fix events, regression history
+```
+
+**Auto-fix integration:** When a Pipeline transitions to `DEPLOYED`, it should automatically call the error fingerprint fix endpoint:
+
+```typescript
+// In OrchestratorService, after successful deploy:
+if (pipeline.errorLogFingerprint) {
+  await ErrorLogger.markFixed(pipeline.errorLogFingerprint, {
+    fixedByPipelineId: pipeline.id,
+    fixedById: pipeline.approvedBy,
+    fixNotes: `Auto-fixed by Claude Code pipeline. Commit: ${pipeline.commitHash}`,
+    resolvedVersion: pipeline.commitHash,
+  });
+}
+```
+
+**Dashboard view — Fix History:**
+```
+Error: "TypeError: Cannot read properties of null (reading 'userId')"
+Source: checkout-service   |   First seen: 2026-04-15 09:12
+
+┌────────────────────────────────────────────────────────────┐
+│  HISTORY                                                    │
+│                                                            │
+│  📅 2026-04-15 09:12  OPEN       First occurrence         │
+│  👁  2026-04-15 09:45  ACKNOWLEDGED  John (Admin)          │
+│  🔧 2026-04-15 10:30  IN_PROGRESS   Pipeline #abc123 started │
+│  ✅ 2026-04-15 11:05  FIXED      Pipeline #abc123 deployed  │
+│     Fixed by: Claude Code (approved by: John)              │
+│     Commit: a3f7b1c   Branch: fix/checkout-null-userId     │
+│     Notes: "Moved null check before property access"       │
+│                                                            │
+│  ⚠️  2026-04-22 14:20  REGRESSED  Occurrence #2            │
+│  🔧 2026-04-22 14:35  IN_PROGRESS  Pipeline #def456 started │
+│  ✅ 2026-04-22 15:10  FIXED      Pipeline #def456 deployed  │
+└────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## Auto-Fix Pipeline Integration
+### 9.4 Error Lifecycle States
 
-When an error is logged, admins can trigger the Auto-Fix Pipeline:
+The full lifecycle of an error from detection to resolution:
 
 ```
-Error Logged in CRM
-     │
-     ▼
-Admin clicks "Auto-Fix with Claude Code"
-     │
-     ▼
-Pipeline created (status: DETECTED → ANALYZING)
-     │
-     ▼
-VPS Agent picks up the pipeline
-     │
-     ▼
-Claude Code CLI runs on VPS with this prompt:
-  "Fix this error: [error message]
-   Stack: [stack trace]
-   Gemini says: [AI analysis]
-   Find the root cause and apply minimal fix."
-     │
-     ▼
-Claude analyzes codebase → proposes fix
-     │
-     ▼
-CRM shows fix proposal (status: AWAITING_APPROVAL)
-Email sent to admins with proposed changes
-     │
-     ▼
-Admin approves in CRM
-     │
-     ▼
-Claude Code applies fix → git commit → build → deploy
-     │
-     ▼
-Pipeline status: DEPLOYED ✓
-Error marked as fixed
+Error occurs in production app
+         │
+         ▼
+    ┌─────────┐
+    │  OPEN   │ ← New fingerprint, no one has acknowledged it
+    └────┬────┘
+         │ Admin views it
+         ▼
+┌──────────────┐
+│ ACKNOWLEDGED │ ← Seen, being assessed. Optional: assign to team member
+└──────┬───────┘
+       │ Auto-Fix clicked OR manual fix started
+       ▼
+┌─────────────┐
+│ IN_PROGRESS │ ← Pipeline running, or dev is working on it manually
+└──────┬──────┘
+       │
+    ┌──┴──┐
+    │     │
+    ▼     ▼
+┌───────┐ ┌──────────┐
+│ FIXED │ │ WONT_FIX │
+└───┬───┘ └──────────┘
+    │
+    │ Same error fingerprint appears again
+    ▼
+┌───────────┐
+│ REGRESSED │ ← Fix didn't hold. Regression count incremented.
+└───────────┘
+    │ Start over
+    ▼
+ IN_PROGRESS (new pipeline)
 ```
 
-See `AUTO_FIX_PIPELINE.md` for full pipeline documentation.
+---
+
+### 9.5 Implementation Roadmap
+
+| Priority | Feature | Effort | Impact |
+|----------|---------|--------|--------|
+| 🔴 High | Persist errors to DB (end the memory-only approach) | Medium | High — enables fix tracking and history |
+| 🔴 High | Fix tracking schema (`fixedAt`, `fixedById`, `fixedByPipelineId`, `status`) | Low | High — answers "who fixed what and when" |
+| 🔴 High | Auto-link Pipeline→ErrorLog when pipeline deploys | Low | High — closes the loop automatically |
+| 🟠 Medium | Batch flush every 10s (reduce DB writes) | Medium | High — critical for high-volume apps |
+| 🟠 Medium | Smart noise filter (drop INFO/WARN, rate-cap noisy fingerprints) | Medium | High — cleaner dashboard |
+| 🟠 Medium | Error acknowledge/fix/wont-fix API endpoints | Medium | Medium — enables manual workflow |
+| 🟡 Low | Fix history timeline UI component | Medium | Medium — visibility |
+| 🟡 Low | Message normalization before fingerprinting | Low | Medium — reduces fingerprint explosion |
+| 🟡 Low | Per-org blocklist (suppress known-good noisy errors) | Low | Medium — ops quality of life |
+| 🟡 Low | Cooldown suppression after fix (24h grace period) | Low | Low — reduces false alerts |
+
+---
+
+## Current System Summary
+
+```
+What works well ✅
+─────────────────
+• Fast ingestion (no DB writes on hot path)
+• Deduplication via SHA256 fingerprinting
+• Async Gemini analysis (non-blocking)
+• Automatic email alerts for ERROR/FATAL
+• Manual "Auto-Fix with Claude Code" trigger
+• Real-time dashboard via in-memory buffer
+• Trend analysis via log file reading
+
+What needs improvement ⚠️
+──────────────────────────
+• Errors lost on server restart (memory only)
+• No fix tracking (who fixed, when, which pipeline)
+• No noise filtering (INFO/WARN clutter dashboard)
+• No batching (one DB write per error at scale)
+• No error lifecycle states (OPEN → FIXED → REGRESSED)
+• Gemini analysis lost on restart (not persisted)
+• No regression detection link between error and pipeline
+```

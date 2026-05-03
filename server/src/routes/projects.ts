@@ -1,68 +1,185 @@
 import { Router, Response } from 'express';
-import { authenticate, AuthRequest, requireRole, getUserProjectIds } from '../middleware/auth';
+import { authenticate, AuthRequest, requireRole } from '../middleware/auth';
 import { prisma } from '../utils/prisma';
+import { NotificationService } from '../services/notifications/NotificationService';
 
 export const projectRoutes = Router();
 projectRoutes.use(authenticate);
 
-// List projects — SUPER_ADMIN sees all, others see only their assigned projects
-projectRoutes.get('/', async (req: AuthRequest, res: Response) => {
-  const allowedIds = await getUserProjectIds(req.user!.id, req.user!.role);
+// ─── Join Request routes (must be before /:id) ───────────────────────────
 
-  const where: any = { organizationId: req.user!.organizationId };
-  if (allowedIds !== null) {
-    where.id = { in: allowedIds };
-  }
-
-  const projects = await prisma.project.findMany({
-    where,
-    orderBy: { createdAt: 'desc' },
+// Super admin: list pending join requests
+projectRoutes.get('/join-requests', requireRole('SUPER_ADMIN'), async (req: AuthRequest, res: Response) => {
+  const requests = await prisma.projectJoinRequest.findMany({
+    where: { project: { organizationId: req.user!.organizationId }, status: 'PENDING' },
     include: {
-      _count: { select: { contacts: true, deals: true, tickets: true, activities: true, members: true } },
+      project: { select: { id: true, name: true, color: true } },
+      user: { select: { id: true, name: true, email: true } },
     },
+    orderBy: { createdAt: 'desc' },
   });
-  res.json(projects);
+  res.json(requests);
 });
 
-// Get single project with stats
+// Super admin: approve or reject a join request
+projectRoutes.patch('/join-requests/:requestId', requireRole('SUPER_ADMIN'), async (req: AuthRequest, res: Response) => {
+  const { status } = req.body; // 'APPROVED' | 'REJECTED'
+  if (!['APPROVED', 'REJECTED'].includes(status)) {
+    return res.status(400).json({ error: 'Status must be APPROVED or REJECTED' });
+  }
+
+  const request = await prisma.projectJoinRequest.findFirst({
+    where: { id: req.params.requestId, project: { organizationId: req.user!.organizationId } },
+    include: { project: { select: { id: true, name: true } }, user: { select: { id: true, name: true } } },
+  });
+  if (!request) return res.status(404).json({ error: 'Request not found' });
+
+  await prisma.projectJoinRequest.update({
+    where: { id: request.id },
+    data: { status, resolvedAt: new Date(), resolvedById: req.user!.id },
+  });
+
+  if (status === 'APPROVED') {
+    // Add user to project members (ignore if already exists)
+    await prisma.projectMember.upsert({
+      where: { projectId_userId: { projectId: request.projectId, userId: request.userId } },
+      create: { projectId: request.projectId, userId: request.userId, role: 'MEMBER' },
+      update: {},
+    });
+  }
+
+  // Notify the requesting user
+  await NotificationService.notify({
+    userId: request.userId,
+    type: 'STATUS_UPDATE',
+    title: status === 'APPROVED' ? `Access granted: ${request.project.name}` : `Access request declined: ${request.project.name}`,
+    message: status === 'APPROVED'
+      ? `You now have access to project "${request.project.name}". Welcome aboard!`
+      : `Your request to join "${request.project.name}" was declined by ${req.user!.name}.`,
+    link: status === 'APPROVED' ? `/projects/${request.projectId}` : '/projects',
+    organizationId: req.user!.organizationId,
+  }).catch(() => {});
+
+  res.json({ success: true });
+});
+
+// ─── List projects (all in org) ───────────────────────────────────────────
+projectRoutes.get('/', async (req: AuthRequest, res: Response) => {
+  const isSuperAdmin = req.user!.role === 'SUPER_ADMIN';
+
+  const projects = await prisma.project.findMany({
+    where: { organizationId: req.user!.organizationId },
+    orderBy: { createdAt: 'desc' },
+    include: {
+      clientContact: { select: { id: true, firstName: true, lastName: true, email: true } },
+      _count: { select: { contacts: true, tickets: true, activities: true, members: true, costs: true, invoices: true } },
+      members: { select: { userId: true, role: true } },
+      joinRequests: {
+        where: { userId: req.user!.id },
+        select: { status: true, createdAt: true },
+      },
+    },
+  });
+
+  const result = projects.map((p) => {
+    const isMember = isSuperAdmin || p.members.some((m) => m.userId === req.user!.id);
+    const myRole = isSuperAdmin ? 'SUPER_ADMIN' : (p.members.find((m) => m.userId === req.user!.id)?.role || null);
+    const myJoinRequest = p.joinRequests[0] || null;
+    const { members, joinRequests, ...rest } = p;
+    return { ...rest, isMember, myRole, myJoinRequest };
+  });
+
+  res.json(result);
+});
+
+// ─── Get single project ───────────────────────────────────────────────────
 projectRoutes.get('/:id', async (req: AuthRequest, res: Response) => {
   const project = await prisma.project.findFirst({
     where: { id: req.params.id, organizationId: req.user!.organizationId },
     include: {
       members: { include: { user: { select: { id: true, name: true, email: true } } } },
-      _count: { select: { contacts: true, deals: true, tickets: true, activities: true, companies: true } },
+      clientContact: { select: { id: true, firstName: true, lastName: true, email: true, phone: true, company: { select: { name: true, address: true } } } },
+      _count: { select: { contacts: true, tickets: true, activities: true, companies: true, members: true, costs: true, updates: true, projectAttachments: true, invoices: true } },
+      joinRequests: {
+        where: { userId: req.user!.id },
+        select: { id: true, status: true, createdAt: true },
+      },
     },
   });
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  // Membership check for non-SUPER_ADMIN
-  const allowedIds = await getUserProjectIds(req.user!.id, req.user!.role);
-  if (allowedIds !== null && !allowedIds.includes(project.id)) {
-    return res.status(403).json({ error: 'You do not have access to this project' });
+  const isSuperAdmin = req.user!.role === 'SUPER_ADMIN';
+  const isMember = isSuperAdmin || project.members.some((m) => m.userId === req.user!.id);
+  const myRole = isSuperAdmin ? 'SUPER_ADMIN' : (project.members.find((m) => m.userId === req.user!.id)?.role || null);
+  const myJoinRequest = project.joinRequests[0] || null;
+
+  // Finance summary (only for members/admins)
+  let costSummary = null;
+  if (isMember) {
+    costSummary = await prisma.projectCost.groupBy({
+      by: ['type'],
+      where: { projectId: req.params.id },
+      _sum: { amount: true },
+    });
   }
 
-  // Pipeline summary
-  const dealsByStage = await prisma.deal.groupBy({
-    by: ['stage'],
-    where: { projectId: req.params.id },
-    _sum: { value: true },
-    _count: true,
-  });
-
-  res.json({ ...project, dealsByStage });
+  const { joinRequests, ...rest } = project;
+  res.json({ ...rest, isMember, myRole, myJoinRequest, costSummary });
 });
 
-// Create project
-projectRoutes.post('/', async (req: AuthRequest, res: Response) => {
-  const { name, description, color } = req.body;
+// ─── Submit join request ───────────────────────────────────────────────────
+projectRoutes.post('/:id/join-request', async (req: AuthRequest, res: Response) => {
+  const project = await prisma.project.findFirst({
+    where: { id: req.params.id, organizationId: req.user!.organizationId },
+    select: { id: true, name: true },
+  });
+  if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  // Check for duplicate name within the organization
+  // Already a member?
+  const existing = await prisma.projectMember.findUnique({
+    where: { projectId_userId: { projectId: project.id, userId: req.user!.id } },
+  });
+  if (existing) return res.status(400).json({ error: 'Already a member of this project' });
+
+  // Create or update join request
+  const request = await prisma.projectJoinRequest.upsert({
+    where: { projectId_userId: { projectId: project.id, userId: req.user!.id } },
+    create: {
+      projectId: project.id,
+      userId: req.user!.id,
+      message: req.body.message || null,
+      status: 'PENDING',
+    },
+    update: { status: 'PENDING', message: req.body.message || null, resolvedAt: null, resolvedById: null },
+  });
+
+  // Notify all SUPER_ADMINs
+  const admins = await prisma.user.findMany({
+    where: { organizationId: req.user!.organizationId, role: 'SUPER_ADMIN' },
+    select: { id: true },
+  });
+  await Promise.all(admins.map((admin) =>
+    NotificationService.notify({
+      userId: admin.id,
+      type: 'TASK_ASSIGNED',
+      title: 'Project access request',
+      message: `${req.user!.name} has requested access to project "${project.name}".`,
+      link: '/projects',
+      organizationId: req.user!.organizationId,
+    }).catch(() => {})
+  ));
+
+  res.status(201).json(request);
+});
+
+// ─── Create project ───────────────────────────────────────────────────────
+projectRoutes.post('/', async (req: AuthRequest, res: Response) => {
+  const { name, description, color, totalBudget, currency, deadline, clientContactId } = req.body;
+
   const existing = await prisma.project.findFirst({
     where: { name, organizationId: req.user!.organizationId },
   });
-  if (existing) {
-    return res.status(400).json({ error: `A project named "${name}" already exists` });
-  }
+  if (existing) return res.status(400).json({ error: `A project named "${name}" already exists` });
 
   const project = await prisma.project.create({
     data: {
@@ -70,17 +187,19 @@ projectRoutes.post('/', async (req: AuthRequest, res: Response) => {
       description,
       color: color || '#3b82f6',
       organizationId: req.user!.organizationId,
-      members: {
-        create: { userId: req.user!.id, role: 'OWNER' },
-      },
+      totalBudget: totalBudget ? parseFloat(totalBudget) : undefined,
+      currency: currency || 'USD',
+      deadline: deadline ? new Date(deadline) : undefined,
+      clientContactId: clientContactId || undefined,
+      members: { create: { userId: req.user!.id, role: 'OWNER' } },
     },
   });
-  res.status(201).json(project);
+  res.status(201).json({ ...project, isMember: true, myRole: 'OWNER', myJoinRequest: null });
 });
 
-// Update project
+// ─── Update project ───────────────────────────────────────────────────────
 projectRoutes.patch('/:id', async (req: AuthRequest, res: Response) => {
-  const { name, description, status, color } = req.body;
+  const { name, description, status, color, totalBudget, currency, deadline, clientContactId } = req.body;
   const project = await prisma.project.update({
     where: { id: req.params.id },
     data: {
@@ -88,12 +207,19 @@ projectRoutes.patch('/:id', async (req: AuthRequest, res: Response) => {
       ...(description !== undefined && { description }),
       ...(status !== undefined && { status }),
       ...(color !== undefined && { color }),
+      ...(totalBudget !== undefined && { totalBudget: totalBudget === '' ? null : parseFloat(totalBudget) }),
+      ...(currency !== undefined && { currency }),
+      ...(deadline !== undefined && { deadline: deadline ? new Date(deadline) : null }),
+      ...(clientContactId !== undefined && { clientContactId: clientContactId || null }),
+    },
+    include: {
+      clientContact: { select: { id: true, firstName: true, lastName: true, email: true } },
     },
   });
   res.json(project);
 });
 
-// Add member to project
+// ─── Members ──────────────────────────────────────────────────────────────
 projectRoutes.post('/:id/members', async (req: AuthRequest, res: Response) => {
   const { userId, role } = req.body;
   const member = await prisma.projectMember.create({
@@ -103,7 +229,6 @@ projectRoutes.post('/:id/members', async (req: AuthRequest, res: Response) => {
   res.status(201).json(member);
 });
 
-// Remove member
 projectRoutes.delete('/:id/members/:userId', async (req: AuthRequest, res: Response) => {
   await prisma.projectMember.deleteMany({
     where: { projectId: req.params.id, userId: req.params.userId },
@@ -111,24 +236,24 @@ projectRoutes.delete('/:id/members/:userId', async (req: AuthRequest, res: Respo
   res.json({ success: true });
 });
 
-// Delete project — SUPER_ADMIN only, cascades all related data
+// ─── Delete project (SUPER_ADMIN only) ───────────────────────────────────
 projectRoutes.delete('/:id', requireRole('SUPER_ADMIN'), async (req: AuthRequest, res: Response) => {
   const projectId = req.params.id as string;
-  const orgId = req.user!.organizationId;
-
-  // Verify project belongs to this org
-  const project = await prisma.project.findFirst({ where: { id: projectId, organizationId: orgId } });
+  const project = await prisma.project.findFirst({ where: { id: projectId, organizationId: req.user!.organizationId } });
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  // Delete all related data (relations with onDelete: SetNull won't auto-cascade)
   await prisma.$transaction([
+    prisma.projectJoinRequest.deleteMany({ where: { projectId } }),
     prisma.pipelineLog.deleteMany({ where: { pipeline: { projectId } } }),
     prisma.pipeline.deleteMany({ where: { projectId } }),
     prisma.functionalResolution.deleteMany({ where: { projectId } }),
     prisma.knowledgeEntry.deleteMany({ where: { projectId } }),
     prisma.projectDocument.deleteMany({ where: { projectId } }),
+    prisma.invoice.deleteMany({ where: { projectId } }),
+    prisma.projectCost.deleteMany({ where: { projectId } }),
+    prisma.projectAttachment.deleteMany({ where: { projectId } }),
+    prisma.projectUpdate.deleteMany({ where: { projectId } }),
     prisma.activity.deleteMany({ where: { projectId } }),
-    prisma.deal.deleteMany({ where: { projectId } }),
     prisma.contact.deleteMany({ where: { projectId } }),
     prisma.company.deleteMany({ where: { projectId } }),
     prisma.ticket.deleteMany({ where: { projectId } }),

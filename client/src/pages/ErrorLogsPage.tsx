@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, RefreshCw, TrendingUp, ChevronDown, ChevronUp, Bot, Zap } from 'lucide-react';
@@ -95,7 +95,7 @@ export function ErrorLogsPage() {
             { label: 'Total Errors', value: stats.total, color: 'text-gray-900' },
             { label: 'Last 24h', value: stats.last24h, color: 'text-red-600' },
             { label: 'Last 7 Days', value: stats.last7d, color: 'text-orange-500' },
-            { label: 'Unanalyzed', value: stats.unanalyzed, color: 'text-blue-600' },
+            { label: 'Unanalyzed', value: stats.unanalyzed, color: 'text-sky-600' },
           ].map((s) => (
             <div key={s.label} className="card-static py-3 text-center animate-stagger-in">
               <div className={`text-2xl font-bold ${s.color}`}>{s.value}</div>
@@ -165,8 +165,8 @@ export function ErrorLogsPage() {
                     <div><span className="text-xs text-gray-500">Endpoint: </span><span className="text-xs font-mono">{log.endpoint}</span></div>
                   )}
                   {log.aiAnalysis ? (
-                    <div className="bg-white border border-blue-200 rounded-lg p-4 space-y-2">
-                      <div className="flex items-center gap-2 text-blue-700 font-medium text-sm"><Bot className="w-4 h-4" />AI Analysis</div>
+                    <div className="bg-white border border-sky-200 rounded-lg p-4 space-y-2">
+                      <div className="flex items-center gap-2 text-sky-700 font-medium text-sm"><Bot className="w-4 h-4" />AI Analysis</div>
                       <div><div className="text-xs font-medium text-gray-500">Root Cause</div><p className="text-sm text-gray-700">{log.aiAnalysis}</p></div>
                       <div><div className="text-xs font-medium text-gray-500">Suggested Fix</div><p className="text-sm text-gray-700">{log.aiSuggestion}</p></div>
                     </div>

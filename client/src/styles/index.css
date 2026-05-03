@@ -10,49 +10,63 @@
 
 @layer components {
   .btn-primary {
-    @apply bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 active:bg-blue-800
-           transition-all duration-150 font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed
-           shadow-sm hover:shadow-md;
+    @apply bg-sky-500 text-white px-4 py-2 rounded-lg
+           hover:bg-sky-500/90 hover:backdrop-blur-sm hover:shadow-md
+           active:bg-sky-700 transition-all duration-200 font-medium text-sm
+           disabled:opacity-50 disabled:cursor-not-allowed shadow-sm;
   }
   .btn-secondary {
-    @apply bg-white text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 active:bg-gray-100
-           transition-all duration-150 font-medium text-sm border border-gray-200 shadow-sm;
+    @apply bg-white/80 text-gray-700 px-4 py-2 rounded-lg
+           hover:bg-white/60 hover:backdrop-blur-sm hover:shadow-md
+           active:bg-gray-100 transition-all duration-200 font-medium text-sm
+           border border-gray-200 shadow-sm;
   }
   .btn-danger {
-    @apply bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 active:bg-red-800
-           transition-all duration-150 font-medium text-sm shadow-sm;
+    @apply bg-red-500 text-white px-4 py-2 rounded-lg
+           hover:bg-red-500/90 hover:backdrop-blur-sm hover:shadow-md
+           active:bg-red-700 transition-all duration-200 font-medium text-sm shadow-sm;
   }
   .btn-ghost {
-    @apply text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-100 active:bg-gray-200
-           transition-all duration-150 font-medium text-sm;
+    @apply text-gray-600 px-3 py-1.5 rounded-lg
+           hover:bg-gray-100/70 hover:backdrop-blur-sm
+           active:bg-gray-200 transition-all duration-200 font-medium text-sm;
   }
   .input-field {
     @apply w-full px-3 py-2 border border-gray-200 rounded-lg
-           focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500
-           outline-none transition-all duration-150 text-sm bg-white
-           placeholder:text-gray-400;
+           focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500
+           outline-none transition-all duration-200 text-sm bg-white/80
+           placeholder:text-gray-400 backdrop-blur-sm;
   }
   .card {
-    @apply bg-white rounded-xl border border-gray-200 p-5
-           shadow-sm hover:shadow-md transition-all duration-200;
+    @apply bg-white/80 rounded-xl border border-gray-200 p-5 backdrop-blur-sm
+           shadow-sm hover:shadow-lg hover:bg-white/90 hover:backdrop-blur-md
+           transition-all duration-200;
   }
   .card-static {
-    @apply bg-white rounded-xl border border-gray-200 p-5;
+    @apply bg-white/80 rounded-xl border border-gray-200 p-5 backdrop-blur-sm;
   }
   .badge {
     @apply px-2 py-0.5 text-xs rounded-full font-medium;
   }
-  .badge-blue { @apply bg-blue-50 text-blue-700; }
-  .badge-green { @apply bg-green-50 text-green-700; }
-  .badge-red { @apply bg-red-50 text-red-700; }
+  .badge-blue   { @apply bg-sky-50 text-sky-700; }
+  .badge-green  { @apply bg-green-50 text-green-700; }
+  .badge-red    { @apply bg-red-50 text-red-700; }
   .badge-yellow { @apply bg-amber-50 text-amber-700; }
-  .badge-gray { @apply bg-gray-100 text-gray-600; }
+  .badge-gray   { @apply bg-gray-100 text-gray-600; }
   .badge-purple { @apply bg-purple-50 text-purple-700; }
+
+  /* Universal glass hover — apply to any interactive element */
+  .glass-hover {
+    @apply transition-all duration-200;
+  }
+  .glass-hover:hover {
+    @apply bg-white/60 backdrop-blur-sm shadow-sm;
+  }
 }
 
 /* ─── Chat styles ─── */
 .chat-message-user {
-  @apply bg-blue-600 text-white rounded-2xl rounded-br-sm px-4 py-2.5 max-w-[85%] ml-auto text-sm leading-relaxed;
+  @apply bg-sky-500 text-white rounded-2xl rounded-br-sm px-4 py-2.5 max-w-[85%] ml-auto text-sm leading-relaxed;
 }
 .chat-message-assistant {
   @apply bg-gray-100 text-gray-900 rounded-2xl rounded-bl-sm px-4 py-2.5 max-w-[85%] text-sm leading-relaxed;
@@ -133,7 +147,7 @@
 * { scrollbar-width: thin; scrollbar-color: #d1d5db transparent; }
 
 /* ─── Table styles ─── */
-.table-hover tr:hover { @apply bg-gray-50; }
+.table-hover tr:hover { @apply bg-white/70 backdrop-blur-sm; }
 
 /* ─── Responsive ─── */
 @media (max-width: 640px) {

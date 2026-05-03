@@ -7,18 +7,14 @@ activityRoutes.use(authenticate);
 
 // List activities
 activityRoutes.get('/', async (req: AuthRequest, res: Response) => {
-  const { projectId, contactId, dealId, companyId, status, type, assigneeId } = req.query;
+  const { projectId, contactId, companyId, status, type, assigneeId } = req.query;
   const where: any = { organizationId: req.user!.organizationId };
 
-  // Project scoping
   const allowedIds = await getUserProjectIds(req.user!.id, req.user!.role);
-  if (allowedIds !== null) {
-    where.projectId = { in: allowedIds };
-  }
+  if (allowedIds !== null) where.projectId = { in: allowedIds };
 
   if (projectId) where.projectId = projectId;
   if (contactId) where.contactId = contactId;
-  if (dealId) where.dealId = dealId;
   if (companyId) where.companyId = companyId;
   if (status) where.status = status;
   if (type) where.type = type;
@@ -30,7 +26,6 @@ activityRoutes.get('/', async (req: AuthRequest, res: Response) => {
     include: {
       contact: { select: { id: true, firstName: true, lastName: true } },
       company: { select: { id: true, name: true } },
-      deal: { select: { id: true, title: true } },
       assignee: { select: { id: true, name: true } },
       project: { select: { id: true, name: true, color: true } },
     },
@@ -40,14 +35,14 @@ activityRoutes.get('/', async (req: AuthRequest, res: Response) => {
 
 // Create activity
 activityRoutes.post('/', async (req: AuthRequest, res: Response) => {
-  const { type, subject, description, dueDate, contactId, companyId, dealId, assigneeId, projectId } = req.body;
+  const { type, subject, description, dueDate, contactId, companyId, assigneeId, projectId } = req.body;
   const activity = await prisma.activity.create({
     data: {
       type: type || 'TASK',
       subject,
       description,
       dueDate: dueDate ? new Date(dueDate) : null,
-      contactId, companyId, dealId, projectId,
+      contactId, companyId, projectId,
       assigneeId: assigneeId || req.user!.id,
       createdById: req.user!.id,
       organizationId: req.user!.organizationId,
@@ -64,7 +59,7 @@ activityRoutes.post('/', async (req: AuthRequest, res: Response) => {
 // Update activity
 activityRoutes.patch('/:id', async (req: AuthRequest, res: Response) => {
   const data: any = {};
-  for (const f of ['type', 'subject', 'description', 'status', 'assigneeId', 'contactId', 'companyId', 'dealId', 'projectId']) {
+  for (const f of ['type', 'subject', 'description', 'status', 'assigneeId', 'contactId', 'companyId', 'projectId']) {
     if (req.body[f] !== undefined) data[f] = req.body[f];
   }
   if (req.body.dueDate !== undefined) data.dueDate = req.body.dueDate ? new Date(req.body.dueDate) : null;

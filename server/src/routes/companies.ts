@@ -29,7 +29,7 @@ companyRoutes.get('/', async (req: AuthRequest, res: Response) => {
     orderBy: { createdAt: 'desc' },
     include: {
       project: { select: { id: true, name: true, color: true } },
-      _count: { select: { contacts: true, deals: true } },
+      _count: { select: { contacts: true } },
     },
   });
   res.json(companies);
@@ -41,7 +41,6 @@ companyRoutes.get('/:id', async (req: AuthRequest, res: Response) => {
     where: { id: req.params.id, organizationId: req.user!.organizationId },
     include: {
       contacts: { orderBy: { createdAt: 'desc' } },
-      deals: { orderBy: { createdAt: 'desc' } },
       activities: { orderBy: { createdAt: 'desc' }, take: 10 },
       project: { select: { id: true, name: true, color: true } },
     },

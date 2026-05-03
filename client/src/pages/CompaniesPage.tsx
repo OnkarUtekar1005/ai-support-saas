@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
 import { Plus, Building2, Search } from 'lucide-react';
@@ -68,7 +68,7 @@ export function CompaniesPage() {
                 </div>
                 <div className="min-w-0">
                   <h3 className="font-semibold text-gray-900 truncate">{c.name}</h3>
-                  {c.domain && <div className="text-xs text-blue-600 truncate">{c.domain}</div>}
+                  {c.domain && <div className="text-xs text-sky-600 truncate">{c.domain}</div>}
                 </div>
               </div>
               <div className="flex flex-wrap gap-2 text-xs text-gray-500 mb-3">

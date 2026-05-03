@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
 import { Plus, DollarSign, TrendingUp, Award } from 'lucide-react';
@@ -64,7 +64,7 @@ export function DealsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center gap-3 mt-4 mb-6">
         <div className="flex gap-3 flex-1">
           <div className="flex items-center gap-2 bg-white rounded-xl border border-gray-200 px-4 py-2">
-            <TrendingUp className="w-4 h-4 text-blue-600" />
+            <TrendingUp className="w-4 h-4 text-sky-600" />
             <div><div className="text-sm font-bold text-gray-900">${totalPipelineValue.toLocaleString()}</div><div className="text-[10px] text-gray-500">Pipeline</div></div>
           </div>
           <div className="flex items-center gap-2 bg-white rounded-xl border border-gray-200 px-4 py-2">
@@ -108,7 +108,7 @@ export function DealsPage() {
                           <button onClick={() => updateStage(deal.id, DEAL_STAGES[DEAL_STAGES.indexOf(stage.stage) - 1])} className="text-xs text-gray-400 hover:text-gray-700 px-1.5 py-0.5 rounded hover:bg-gray-100 transition-colors">&larr;</button>
                         )}
                         {DEAL_STAGES.indexOf(stage.stage) < 3 && (
-                          <button onClick={() => updateStage(deal.id, DEAL_STAGES[DEAL_STAGES.indexOf(stage.stage) + 1])} className="text-xs text-blue-600 hover:text-blue-800 px-1.5 py-0.5 rounded hover:bg-blue-50 transition-colors">&rarr;</button>
+                          <button onClick={() => updateStage(deal.id, DEAL_STAGES[DEAL_STAGES.indexOf(stage.stage) + 1])} className="text-xs text-sky-600 hover:text-sky-800 px-1.5 py-0.5 rounded hover:bg-sky-50 transition-colors">&rarr;</button>
                         )}
                         <div className="flex-1" />
                         <button onClick={() => updateStage(deal.id, 'CLOSED_WON')} className="text-xs text-green-600 hover:bg-green-50 px-1.5 py-0.5 rounded transition-colors">Won</button>

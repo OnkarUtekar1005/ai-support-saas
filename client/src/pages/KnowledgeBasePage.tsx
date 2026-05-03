@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+﻿import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
 import { Upload, FileText, Trash2, Plus } from 'lucide-react';
@@ -7,7 +7,7 @@ import { formatFileSize, STATUS_COLORS } from '../constants';
 
 const DOC_STATUS_COLORS: Record<string, string> = {
   pending: 'bg-gray-100 text-gray-600',
-  processing: 'bg-blue-100 text-blue-700',
+  processing: 'bg-sky-100 text-sky-700',
   indexed: 'bg-green-100 text-green-700',
   failed: 'bg-red-100 text-red-700',
 };
@@ -90,12 +90,12 @@ export function KnowledgeBasePage() {
         onDragLeave={() => setDragging(false)}
         onDrop={handleDrop}
         className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors mb-6 ${
-          dragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50/50'}`}
+          dragging ? 'border-sky-500 bg-sky-50' : 'border-gray-300 hover:border-sky-400 hover:bg-sky-50/50'}`}
       >
         <input ref={fileInputRef} type="file" accept=".pdf,.docx,.txt,.md" onChange={handleUpload} className="hidden" />
         {uploading ? (
           <div className="flex flex-col items-center gap-2">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-sky-600" />
             <p className="text-sm text-gray-600">Uploading...</p>
           </div>
         ) : (

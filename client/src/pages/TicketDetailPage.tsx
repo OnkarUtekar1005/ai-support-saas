@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
@@ -244,7 +244,7 @@ export function TicketDetailPage() {
                 )}
                 {analysis.entities?.modules?.length > 0 && (
                   <div><span className="text-xs text-gray-400">Modules</span>
-                    <div className="flex flex-wrap gap-1 mt-1">{analysis.entities.modules.map((m: string, i: number) => <span key={i} className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded-lg text-xs">{m}</span>)}</div>
+                    <div className="flex flex-wrap gap-1 mt-1">{analysis.entities.modules.map((m: string, i: number) => <span key={i} className="bg-sky-50 text-sky-700 px-2 py-0.5 rounded-lg text-xs">{m}</span>)}</div>
                   </div>
                 )}
               </div>

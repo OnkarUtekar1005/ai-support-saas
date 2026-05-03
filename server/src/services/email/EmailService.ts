@@ -114,6 +114,46 @@ export class EmailService {
     });
   }
 
+  static async sendProjectUpdate(input: {
+    to: string[];
+    projectName: string;
+    updateTitle: string;
+    updateContent: string;
+    smtpConfig?: { smtpHost: string; smtpPort: number; smtpUser: string; smtpPassEnc: string };
+  }): Promise<void> {
+    const transporter = this.createTransport(input.smtpConfig);
+    const html = `<!DOCTYPE html>
+    <html><head><style>
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background: #f8fafc; }
+      .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+      .header { background: #2563eb; color: white; padding: 20px; }
+      .header .label { font-size: 12px; opacity: 0.8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+      .header .project { font-size: 20px; font-weight: bold; }
+      .content { padding: 24px; }
+      .title { font-size: 18px; font-weight: 600; color: #1f2937; margin-bottom: 16px; }
+      .body { color: #374151; line-height: 1.7; white-space: pre-wrap; }
+      .footer { padding: 16px 24px; background: #f8fafc; color: #6b7280; font-size: 12px; text-align: center; }
+    </style></head>
+    <body><div class="container">
+      <div class="header">
+        <div class="label">Project Update</div>
+        <div class="project">${escapeHtml(input.projectName)}</div>
+      </div>
+      <div class="content">
+        <div class="title">${escapeHtml(input.updateTitle)}</div>
+        <div class="body">${escapeHtml(input.updateContent)}</div>
+      </div>
+      <div class="footer">Sent via Techview CRM</div>
+    </div></body></html>`;
+
+    await transporter.sendMail({
+      from: `"Techview CRM" <${input.smtpConfig?.smtpUser || config.smtp.user}>`,
+      to: input.to.join(', '),
+      subject: `[${escapeHtml(input.projectName)}] ${escapeHtml(input.updateTitle)}`,
+      html,
+    });
+  }
+
   static async sendErrorDigest(input: DigestInput): Promise<void> {
     const transporter = this.createTransport(input.smtpConfig);
 

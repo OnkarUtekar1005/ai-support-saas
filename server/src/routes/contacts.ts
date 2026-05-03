@@ -5,9 +5,10 @@ import { prisma } from '../utils/prisma';
 export const contactRoutes = Router();
 contactRoutes.use(authenticate);
 
-// List contacts (optional project filter)
+// List contacts — cursor-based pagination
 contactRoutes.get('/', async (req: AuthRequest, res: Response) => {
-  const { projectId, companyId, status, search, page = '1', limit = '50' } = req.query;
+  const { projectId, companyId, status, search, cursor, limit = '50' } = req.query;
+  const take = Math.min(Number(limit), 200);
 
   const where: any = { organizationId: req.user!.organizationId };
 
@@ -28,22 +29,35 @@ contactRoutes.get('/', async (req: AuthRequest, res: Response) => {
     ];
   }
 
-  const [contacts, total] = await Promise.all([
-    prisma.contact.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      skip: (Number(page) - 1) * Number(limit),
-      take: Number(limit),
-      include: {
-        company: { select: { id: true, name: true } },
-        project: { select: { id: true, name: true, color: true } },
-        _count: { select: { deals: true, activities: true, tickets: true } },
-      },
-    }),
-    prisma.contact.count({ where }),
-  ]);
+  if (cursor) {
+    const { createdAt, id } = JSON.parse(Buffer.from(cursor as string, 'base64').toString());
+    const cursorClause = [
+      { createdAt: { lt: new Date(createdAt) } },
+      { createdAt: new Date(createdAt), id: { lt: id } },
+    ];
+    // Merge with existing OR (search) if present
+    where.AND = [{ OR: cursorClause }];
+  }
 
-  res.json({ contacts, total, page: Number(page), totalPages: Math.ceil(total / Number(limit)) });
+  const contacts = await prisma.contact.findMany({
+    where,
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: take + 1,
+    include: {
+      company: { select: { id: true, name: true } },
+      project: { select: { id: true, name: true, color: true } },
+      _count: { select: { activities: true, tickets: true } },
+    },
+  });
+
+  const hasNextPage = contacts.length > take;
+  if (hasNextPage) contacts.pop();
+
+  const nextCursor = hasNextPage
+    ? Buffer.from(JSON.stringify({ createdAt: contacts[contacts.length - 1].createdAt, id: contacts[contacts.length - 1].id })).toString('base64')
+    : null;
+
+  res.json({ contacts, nextCursor, hasNextPage });
 });
 
 // Get single contact with related data
@@ -53,7 +67,6 @@ contactRoutes.get('/:id', async (req: AuthRequest, res: Response) => {
     include: {
       company: true,
       project: { select: { id: true, name: true, color: true } },
-      deals: { orderBy: { createdAt: 'desc' } },
       activities: { orderBy: { createdAt: 'desc' }, take: 10, include: { assignee: { select: { name: true } } } },
       tickets: { orderBy: { createdAt: 'desc' }, take: 5 },
     },

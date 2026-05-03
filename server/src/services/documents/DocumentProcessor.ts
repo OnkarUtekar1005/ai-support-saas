@@ -1,7 +1,7 @@
 import { prisma } from '../../utils/prisma';
 import { GeminiEmbeddings } from '../ai/GeminiEmbeddings';
 import * as fs from 'fs';
-import * as path from 'path';
+import { notionStorage } from '../notion/NotionStorageService';
 
 export class DocumentProcessor {
   private embeddings: GeminiEmbeddings;
@@ -15,39 +15,48 @@ export class DocumentProcessor {
     if (!doc) throw new Error('Document not found');
 
     try {
-      // Update status to processing
       await prisma.projectDocument.update({ where: { id: documentId }, data: { status: 'processing' } });
+
+      // Get file as a buffer — from Notion or local disk
+      let buffer: Buffer;
+      if (doc.filePath.startsWith('notion:')) {
+        const pageId = doc.filePath.replace('notion:', '');
+        const downloaded = await notionStorage.downloadFile(pageId);
+        if (!downloaded) throw new Error('Could not download file from Notion');
+        buffer = downloaded;
+      } else {
+        buffer = fs.readFileSync(doc.filePath);
+      }
 
       // Extract text based on file type
       let text = '';
       if (doc.fileType === 'pdf') {
         const pdfParse = require('pdf-parse');
-        const buffer = fs.readFileSync(doc.filePath);
         const pdf = await pdfParse(buffer);
         text = pdf.text;
       } else if (doc.fileType === 'docx') {
         const mammoth = await import('mammoth');
-        const result = await mammoth.extractRawText({ path: doc.filePath });
+        const result = await mammoth.extractRawText({ buffer });
         text = result.value;
       } else {
         // txt, md
-        text = fs.readFileSync(doc.filePath, 'utf-8');
+        text = buffer.toString('utf-8');
       }
 
       if (!text.trim()) {
-        await prisma.projectDocument.update({ where: { id: documentId }, data: { status: 'failed', errorMessage: 'No text content found' } });
+        await prisma.projectDocument.update({
+          where: { id: documentId },
+          data: { status: 'failed', errorMessage: 'No text content found' },
+        });
         return;
       }
 
-      // Chunk text
       const chunks = this.chunkText(text, 500, 50);
 
-      // Create knowledge entries with embeddings
       let chunkCount = 0;
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
         const title = `${doc.fileName} — chunk ${i + 1}`;
-
         try {
           const embedding = await this.embeddings.embedText(`${title}\n${chunk}`);
           await prisma.knowledgeEntry.create({

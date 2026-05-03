@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { ArrowLeft, Wrench, Bot, Bell, Save } from 'lucide-react';
@@ -38,9 +38,12 @@ export function AgentConfigDetailPage() {
       api.getReminderConfig(id).catch(() => null),
     ]).then(([proj, agentData, reminderData]: any[]) => {
       setProject(proj);
-      setTechnical(agentData?.technical ? { ...DEFAULT_TECHNICAL, ...agentData.technical } : DEFAULT_TECHNICAL);
-      setFunctional(agentData?.functional ? { ...DEFAULT_FUNCTIONAL, ...agentData.functional } : DEFAULT_FUNCTIONAL);
-      setReminders(reminderData ? { ...DEFAULT_REMINDERS, ...reminderData } : DEFAULT_REMINDERS);
+      // Replace null values with defaults to avoid React controlled-input warnings
+      const merge = (defaults: any, api: any) =>
+        Object.fromEntries(Object.entries({ ...defaults, ...api }).map(([k, v]) => [k, v ?? defaults[k] ?? '']));
+      setTechnical(agentData?.technical ? merge(DEFAULT_TECHNICAL, agentData.technical) : DEFAULT_TECHNICAL);
+      setFunctional(agentData?.functional ? merge(DEFAULT_FUNCTIONAL, agentData.functional) : DEFAULT_FUNCTIONAL);
+      setReminders(reminderData ? merge(DEFAULT_REMINDERS, reminderData) : DEFAULT_REMINDERS);
     }).finally(() => setLoading(false));
   }, [id]);
 
@@ -83,7 +86,7 @@ export function AgentConfigDetailPage() {
 
   const toggle = (label: string, desc: string, checked: boolean, onChange: (v: boolean) => void) => (
     <label className="flex items-start gap-3 cursor-pointer p-3 rounded-lg hover:bg-gray-50 transition-colors -mx-3">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="rounded mt-0.5 text-blue-600" />
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="rounded mt-0.5 text-sky-600" />
       <div>
         <div className="text-sm font-medium text-gray-900">{label}</div>
         <div className="text-xs text-gray-500">{desc}</div>
@@ -115,15 +118,15 @@ export function AgentConfigDetailPage() {
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
-              className={`text-left p-4 rounded-xl border-2 transition-all ${active ? 'border-blue-500 bg-blue-50/50 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}
+              className={`text-left p-4 rounded-xl border-2 transition-all ${active ? 'border-sky-500 bg-sky-50/50 shadow-sm' : 'border-gray-200 hover:border-gray-300 bg-white'}`}
             >
               <div className="flex items-center justify-between mb-2">
-                <t.icon className={`w-5 h-5 ${active ? 'text-blue-600' : 'text-gray-400'}`} />
+                <t.icon className={`w-5 h-5 ${active ? 'text-sky-600' : 'text-gray-400'}`} />
                 <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${enabled ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
                   {enabled ? 'ENABLED' : 'DISABLED'}
                 </span>
               </div>
-              <div className={`font-semibold text-sm ${active ? 'text-blue-900' : 'text-gray-900'}`}>{t.label}</div>
+              <div className={`font-semibold text-sm ${active ? 'text-sky-900' : 'text-gray-900'}`}>{t.label}</div>
               <div className="text-xs text-gray-500 mt-0.5">{t.desc}</div>
             </button>
           );
@@ -136,7 +139,7 @@ export function AgentConfigDetailPage() {
           <div className="space-y-5">
             <div className="flex items-center justify-between pb-4 border-b border-gray-100">
               <div>
-                <h2 className="font-semibold text-gray-900 flex items-center gap-2"><Wrench className="w-4 h-4 text-blue-600" /> Technical Agent (Auto-Fix)</h2>
+                <h2 className="font-semibold text-gray-900 flex items-center gap-2"><Wrench className="w-4 h-4 text-sky-600" /> Technical Agent (Auto-Fix)</h2>
                 <p className="text-xs text-gray-500 mt-0.5">Automatically detect, analyze, and fix code bugs using Claude Code</p>
               </div>
               {toggle('', '', technical.enabled, (v) => setTechnical((c: any) => ({ ...c, enabled: v })))}
@@ -174,7 +177,7 @@ export function AgentConfigDetailPage() {
           <div className="space-y-5">
             <div className="flex items-center justify-between pb-4 border-b border-gray-100">
               <div>
-                <h2 className="font-semibold text-gray-900 flex items-center gap-2"><Bot className="w-4 h-4 text-blue-600" /> Functional Agent (Knowledge Base)</h2>
+                <h2 className="font-semibold text-gray-900 flex items-center gap-2"><Bot className="w-4 h-4 text-sky-600" /> Functional Agent (Knowledge Base)</h2>
                 <p className="text-xs text-gray-500 mt-0.5">Resolve process and workflow issues using uploaded documentation</p>
               </div>
               {toggle('', '', functional.enabled, (v) => setFunctional((c: any) => ({ ...c, enabled: v })))}
@@ -201,7 +204,7 @@ export function AgentConfigDetailPage() {
           <div className="space-y-5">
             <div className="flex items-center justify-between pb-4 border-b border-gray-100">
               <div>
-                <h2 className="font-semibold text-gray-900 flex items-center gap-2"><Bell className="w-4 h-4 text-blue-600" /> Reminder & Assignment Settings</h2>
+                <h2 className="font-semibold text-gray-900 flex items-center gap-2"><Bell className="w-4 h-4 text-sky-600" /> Reminder & Assignment Settings</h2>
                 <p className="text-xs text-gray-500 mt-0.5">Configure notifications, reminders, and automatic task assignment</p>
               </div>
               {toggle('', '', reminders.enabled, (v) => setReminders((c: any) => ({ ...c, enabled: v })))}

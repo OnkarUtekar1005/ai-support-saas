@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { Plus, Key, Copy, Check, Trash2, Globe, Smartphone, Server, Eye, EyeOff, Code, BarChart3 } from 'lucide-react';
 
@@ -199,19 +199,19 @@ await crmRequest('/ticket', {
       </div>
 
       {/* How it works */}
-      <div className="card mb-6 bg-blue-50/50 border-blue-200">
-        <h2 className="font-semibold text-blue-900 mb-2">How to connect your app</h2>
+      <div className="card mb-6 bg-sky-50/50 border-sky-200">
+        <h2 className="font-semibold text-sky-900 mb-2">How to connect your app</h2>
         <div className="grid md:grid-cols-3 gap-4 text-sm">
           <div className="flex gap-3">
-            <div className="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold flex-shrink-0">1</div>
+            <div className="w-7 h-7 rounded-full bg-sky-600 text-white flex items-center justify-center text-xs font-bold flex-shrink-0">1</div>
             <div><strong>Create API Key</strong> — Choose your platform (web, mobile, server) and assign to a project</div>
           </div>
           <div className="flex gap-3">
-            <div className="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold flex-shrink-0">2</div>
+            <div className="w-7 h-7 rounded-full bg-sky-600 text-white flex items-center justify-center text-xs font-bold flex-shrink-0">2</div>
             <div><strong>Add the snippet</strong> — Copy the code snippet into your app</div>
           </div>
           <div className="flex gap-3">
-            <div className="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold flex-shrink-0">3</div>
+            <div className="w-7 h-7 rounded-full bg-sky-600 text-white flex items-center justify-center text-xs font-bold flex-shrink-0">3</div>
             <div><strong>Data flows in</strong> — Contacts, errors, events, and tickets appear in your CRM automatically</div>
           </div>
         </div>
@@ -272,10 +272,10 @@ await crmRequest('/ticket', {
                   </div>
 
                   <div className="flex items-center gap-1">
-                    <button onClick={() => loadStats(k.id)} className="p-2 text-gray-400 hover:text-blue-600" title="Stats">
+                    <button onClick={() => loadStats(k.id)} className="p-2 text-gray-400 hover:text-sky-600" title="Stats">
                       <BarChart3 className="w-4 h-4" />
                     </button>
-                    <button onClick={() => setShowSnippet(showSnippet === k.id ? null : k.id)} className="p-2 text-gray-400 hover:text-blue-600" title="Code snippet">
+                    <button onClick={() => setShowSnippet(showSnippet === k.id ? null : k.id)} className="p-2 text-gray-400 hover:text-sky-600" title="Code snippet">
                       <Code className="w-4 h-4" />
                     </button>
                     <button onClick={() => toggleActive(k.id, k.isActive)} className="p-2 text-gray-400 hover:text-yellow-600" title={k.isActive ? 'Disable' : 'Enable'}>
@@ -317,7 +317,7 @@ await crmRequest('/ticket', {
                       <span className="text-xs font-medium text-gray-500">Integration Code ({PLATFORM_LABELS[k.platform]})</span>
                       <button
                         onClick={() => copyToClipboard(getSnippet('YOUR_API_KEY', k.platform), 'snippet-' + k.id)}
-                        className="text-xs text-blue-600 flex items-center gap-1"
+                        className="text-xs text-sky-600 flex items-center gap-1"
                       >
                         {copied === 'snippet-' + k.id ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
                       </button>
@@ -351,7 +351,7 @@ await crmRequest('/ticket', {
                       key={p} type="button"
                       onClick={() => setForm((f) => ({ ...f, platform: p }))}
                       className={`p-3 rounded-lg border text-center text-xs font-medium transition-all ${
-                        form.platform === p ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-500 hover:border-gray-300'
+                        form.platform === p ? 'border-sky-500 bg-sky-50 text-sky-700' : 'border-gray-200 text-gray-500 hover:border-gray-300'
                       }`}
                     >
                       <I className="w-5 h-5 mx-auto mb-1" />
@@ -387,7 +387,7 @@ await crmRequest('/ticket', {
                   )}
                 </div>
               ))}
-              <button type="button" onClick={() => setForm((f) => ({ ...f, allowedOrigins: [...f.allowedOrigins, ''] }))} className="text-blue-600 text-xs font-medium">+ Add origin</button>
+              <button type="button" onClick={() => setForm((f) => ({ ...f, allowedOrigins: [...f.allowedOrigins, ''] }))} className="text-sky-600 text-xs font-medium">+ Add origin</button>
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Permissions</label>

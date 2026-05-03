@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
 import { Save, Bot, Eye, MessageSquare, X } from 'lucide-react';
@@ -110,7 +110,7 @@ export function ChatbotConfigPage() {
             key={t.key}
             onClick={() => { setTab(t.key as any); if (t.key === 'conversations') loadSessions(); }}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-              tab === t.key ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+              tab === t.key ? 'border-sky-600 text-sky-600' : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
           >
             <t.icon className="w-4 h-4" /> {t.label}
@@ -255,7 +255,7 @@ export function ChatbotConfigPage() {
                   <button
                     key={s.id}
                     onClick={() => viewConversation(s.id)}
-                    className={`w-full text-left p-3 border-b border-gray-100 hover:bg-gray-50 ${viewSession?.id === s.id ? 'bg-blue-50' : ''}`}
+                    className={`w-full text-left p-3 border-b border-gray-100 hover:bg-gray-50 ${viewSession?.id === s.id ? 'bg-sky-50' : ''}`}
                   >
                     <div className="text-sm font-medium truncate">{s.visitorEmail || s.visitorName || 'Anonymous'}</div>
                     <div className="text-xs text-gray-500 truncate">{s.messages?.[0]?.content || 'No messages'}</div>

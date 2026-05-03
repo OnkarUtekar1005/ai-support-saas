@@ -67,17 +67,19 @@ pipelineRoutes.post('/trigger', async (req: AuthRequest, res: Response) => {
       }
     }
 
-    // If fingerprint provided, read from in-memory ingestion service
+    // If fingerprint provided, read from DB
     if (fingerprint && !message) {
-      const { ErrorIngestionService } = await import('../services/logging/ErrorIngestionService');
-      const entry = ErrorIngestionService.getInstance().getFingerprintDetail(fingerprint);
+      const entry = await prisma.errorLog.findFirst({
+        where: { fingerprint, organizationId: req.user!.organizationId },
+        orderBy: { lastSeenAt: 'desc' },
+      });
       if (entry) {
         message = entry.message;
-        stack = entry.stack || null;
+        stack = entry.stack;
         source = entry.source;
         pId = entry.projectId || pId;
-        analysis = entry.aiAnalysis || null;
-        suggestion = entry.aiSuggestion || null;
+        analysis = entry.aiAnalysis;
+        suggestion = entry.aiSuggestion;
       }
     }
 

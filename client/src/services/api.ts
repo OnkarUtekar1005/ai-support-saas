@@ -1,7 +1,9 @@
+import { useAuthStore } from '../store/authStore';
+
 const API_BASE = '/api';
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = localStorage.getItem('token');
+  const token = useAuthStore.getState().token;
 
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
@@ -27,6 +29,8 @@ export const api = {
   login: (data: { email: string; password: string }) =>
     request('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
   getMe: () => request('/auth/me'),
+  refreshToken: () => request('/auth/refresh', { method: 'POST', credentials: 'include' }),
+  logout: () => request('/auth/logout', { method: 'POST', credentials: 'include' }),
   inviteUser: (data: { email: string; name: string; role: string; password: string }) =>
     request('/auth/invite', { method: 'POST', body: JSON.stringify(data) }),
 
@@ -52,8 +56,8 @@ export const api = {
     request('/db-connections', { method: 'POST', body: JSON.stringify(data) }),
   executeQuery: (connId: string, query: string) =>
     request(`/db-connections/${connId}/query`, { method: 'POST', body: JSON.stringify({ query }) }),
-  generateSql: (connId: string, request: string, schemaContext?: string) =>
-    api._post(`/db-connections/${connId}/generate-sql`, { request, schemaContext }),
+  generateSql: (connId: string, req: string, schemaContext?: string) =>
+    api._post(`/db-connections/${connId}/generate-sql`, { request: req, schemaContext }),
 
   // Error Logs
   getErrorLogs: (params?: string) => request(`/error-logs${params ? `?${params}` : ''}`),
@@ -87,6 +91,63 @@ export const api = {
   updateProject: (id: string, data: any) => request(`/projects/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteProject: (id: string) => request(`/projects/${id}`, { method: 'DELETE' }),
   addProjectMember: (id: string, data: any) => request(`/projects/${id}/members`, { method: 'POST', body: JSON.stringify(data) }),
+  removeProjectMember: (id: string, userId: string) => request(`/projects/${id}/members/${userId}`, { method: 'DELETE' }),
+  requestProjectAccess: (id: string, message?: string) => request(`/projects/${id}/join-request`, { method: 'POST', body: JSON.stringify({ message }) }),
+  getJoinRequests: () => request('/projects/join-requests'),
+  resolveJoinRequest: (requestId: string, status: 'APPROVED' | 'REJECTED') => request(`/projects/join-requests/${requestId}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+
+  // ─── Project Finance: Costs ───
+  getProjectCosts: (projectId: string) => request(`/projects/${projectId}/costs`),
+  createProjectCost: (projectId: string, data: any) =>
+    request(`/projects/${projectId}/costs`, { method: 'POST', body: JSON.stringify(data) }),
+  updateProjectCost: (projectId: string, costId: string, data: any) =>
+    request(`/projects/${projectId}/costs/${costId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteProjectCost: (projectId: string, costId: string) =>
+    request(`/projects/${projectId}/costs/${costId}`, { method: 'DELETE' }),
+
+  // ─── Project Attachments ───
+  getProjectAttachments: (projectId: string) => request(`/projects/${projectId}/attachments`),
+  uploadProjectAttachment: async (projectId: string, file: File, notes?: string) => {
+    const token = useAuthStore.getState().token;
+    const formData = new FormData();
+    formData.append('file', file);
+    if (notes) formData.append('notes', notes);
+    const res = await fetch(`${API_BASE}/projects/${projectId}/attachments`, {
+      method: 'POST',
+      headers: { ...(token && { Authorization: `Bearer ${token}` }) },
+      body: formData,
+    });
+    if (!res.ok) throw new Error('Upload failed');
+    return res.json();
+  },
+  updateProjectAttachment: (projectId: string, attachmentId: string, data: any) =>
+    request(`/projects/${projectId}/attachments/${attachmentId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteProjectAttachment: (projectId: string, attachmentId: string) =>
+    request(`/projects/${projectId}/attachments/${attachmentId}`, { method: 'DELETE' }),
+  downloadAttachmentUrl: (projectId: string, attachmentId: string) =>
+    `${API_BASE}/projects/${projectId}/attachments/${attachmentId}/download`,
+
+  // ─── Project Updates ───
+  getProjectUpdates: (projectId: string) => request(`/projects/${projectId}/updates`),
+  createProjectUpdate: (projectId: string, data: any) =>
+    request(`/projects/${projectId}/updates`, { method: 'POST', body: JSON.stringify(data) }),
+  deleteProjectUpdate: (projectId: string, updateId: string) =>
+    request(`/projects/${projectId}/updates/${updateId}`, { method: 'DELETE' }),
+
+  // ─── Invoices ───
+  getInvoices: (params?: string) => request(`/invoices${params ? `?${params}` : ''}`),
+  getProjectInvoices: (projectId: string) => request(`/invoices/project/${projectId}`),
+  getInvoice: (id: string) => request(`/invoices/${id}`),
+  createInvoice: (projectId: string, data: any) =>
+    request(`/invoices/project/${projectId}`, { method: 'POST', body: JSON.stringify(data) }),
+  updateInvoice: (id: string, data: any) =>
+    request(`/invoices/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteInvoice: (id: string) => request(`/invoices/${id}`, { method: 'DELETE' }),
+  getInvoiceOrgSettings: () => request('/invoices/org-settings'),
+
+  // ─── Invoice Settings (branding) ───
+  getInvoiceSettings: () => request('/invoice-settings'),
+  updateInvoiceSettings: (data: any) => request('/invoice-settings', { method: 'PUT', body: JSON.stringify(data) }),
 
   // ─── CRM: Contacts ───
   getContacts: (params?: string) => request(`/contacts${params ? `?${params}` : ''}`),
@@ -101,14 +162,6 @@ export const api = {
   createCompany: (data: any) => request('/companies', { method: 'POST', body: JSON.stringify(data) }),
   updateCompany: (id: string, data: any) => request(`/companies/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteCompany: (id: string) => request(`/companies/${id}`, { method: 'DELETE' }),
-
-  // ─── CRM: Deals ───
-  getDeals: (params?: string) => request(`/deals${params ? `?${params}` : ''}`),
-  getDealPipeline: (projectId?: string) => request(`/deals/pipeline${projectId ? `?projectId=${projectId}` : ''}`),
-  getDeal: (id: string) => request(`/deals/${id}`),
-  createDeal: (data: any) => request('/deals', { method: 'POST', body: JSON.stringify(data) }),
-  updateDeal: (id: string, data: any) => request(`/deals/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  deleteDeal: (id: string) => request(`/deals/${id}`, { method: 'DELETE' }),
 
   // ─── Chatbot Config ───
   getChatbotConfig: (projectId: string) => request(`/chatbot-config/${projectId}`),
@@ -153,7 +206,7 @@ export const api = {
   // ─── Documents / Knowledge Base ───
   getDocuments: (projectId: string) => request(`/documents/${projectId}`),
   uploadDocument: async (projectId: string, file: File) => {
-    const token = localStorage.getItem('token');
+    const token = useAuthStore.getState().token;
     const formData = new FormData();
     formData.append('file', file);
     const res = await fetch(`${API_BASE}/documents/${projectId}/upload`, {
@@ -182,6 +235,11 @@ export const api = {
   // ─── Reminder Config ───
   getReminderConfig: (projectId: string) => request(`/reminder-config/${projectId}`),
   saveReminderConfig: (projectId: string, data: any) => request(`/reminder-config/${projectId}`, { method: 'PUT', body: JSON.stringify(data) }),
+
+  // ─── Finance Dashboard & AI Quote ───
+  getFinanceDashboard: () => request('/finance/dashboard'),
+  generateQuote: (data: { projectName?: string; description: string; countryCode: string; techStack?: string; timeline?: string; complexity?: string }) =>
+    request('/finance/quote', { method: 'POST', body: JSON.stringify(data) }),
 
   // ─── Ticket Assignment ───
   assignTicket: (ticketId: string, assigneeId: string) => request(`/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify({ assigneeId }) }),

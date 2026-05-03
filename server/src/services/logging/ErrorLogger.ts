@@ -1,9 +1,11 @@
 import winston from 'winston';
-import { ErrorIngestionService, ErrorInput, ErrorEntry, OrgStats, FingerprintSummary } from './ErrorIngestionService';
-import { ErrorLogWriter } from './ErrorLogWriter';
+import { prisma } from '../../utils/prisma';
+import { ErrorFingerprint } from '../orchestrator/ErrorFingerprint';
 import { GeminiLogAnalyzer } from '../ai/GeminiLogAnalyzer';
+import { EmailService } from '../email/EmailService';
+import { ErrorLogWriter } from './ErrorLogWriter';
 
-interface ErrorLogInput {
+export interface ErrorLogInput {
   level: 'INFO' | 'WARN' | 'ERROR' | 'FATAL';
   message: string;
   stack?: string;
@@ -13,15 +15,14 @@ interface ErrorLogInput {
   userId?: string;
   projectId?: string;
   organizationId?: string;
-  requestData?: any;
   language?: string;
   framework?: string;
   environment?: string;
   hostname?: string;
   metadata?: any;
+  requestData?: any;
 }
 
-// Winston logger for file/console output (kept for backward compat + server-side logging)
 const winstonLogger = winston.createLogger({
   level: 'info',
   format: winston.format.combine(
@@ -40,115 +41,276 @@ const winstonLogger = winston.createLogger({
 
 export class ErrorLogger {
   /**
-   * Log an error to:
-   * 1. Winston (file/console) — immediate
-   * 2. ErrorIngestionService (structured log file + memory + Gemini dedup)
-   *
-   * NO database writes — errors live in log files + memory.
+   * Ingest an error:
+   * 1. Winston (immediate console/file)
+   * 2. Fingerprint dedup → upsert DB record
+   * 3. .jsonl audit trail
+   * 4. Gemini analysis (async, only for new unique errors)
+   * 5. Email alert (async, only for new unique errors)
    */
   static async logError(input: ErrorLogInput): Promise<string | null> {
-    // 1. Log to Winston immediately (server-side visibility)
+    // 1. Winston — fire and forget, never blocks
     winstonLogger.log(input.level.toLowerCase(), input.message, {
       source: input.source,
       endpoint: input.endpoint,
       stack: input.stack,
     });
 
-    // 2. Route to ErrorIngestionService (file + memory + Gemini + email)
-    const ingestion = ErrorIngestionService.getInstance();
-    const result = ingestion.ingest({
-      level: input.level,
+    // 2. Fingerprint
+    const fp = ErrorFingerprint.generate({
       message: input.message,
-      stack: input.stack,
       source: input.source,
-      category: input.category,
-      endpoint: input.endpoint,
-      userId: input.userId,
-      projectId: input.projectId,
-      organizationId: input.organizationId,
-      language: input.language,
-      framework: input.framework,
-      environment: input.environment,
-      hostname: input.hostname,
-      metadata: input.metadata || input.requestData,
+      stack: input.stack,
     });
 
-    // Return fingerprint as the "ID" (replaces the DB errorLog.id)
-    return result.fingerprint;
+    try {
+      // 3. Upsert to DB — increment count on duplicate fingerprint
+      const existing = input.organizationId
+        ? await prisma.errorLog.findFirst({
+            where: { fingerprint: fp, organizationId: input.organizationId },
+            select: { id: true, occurrenceCount: true },
+          })
+        : null;
+
+      if (existing) {
+        await prisma.errorLog.update({
+          where: { id: existing.id },
+          data: {
+            occurrenceCount: { increment: 1 },
+            lastSeenAt: new Date(),
+          },
+        });
+      } else {
+        await prisma.errorLog.create({
+          data: {
+            level: input.level as any,
+            message: input.message,
+            stack: input.stack,
+            source: input.source,
+            category: input.category,
+            endpoint: input.endpoint,
+            userId: input.userId,
+            projectId: input.projectId || null,
+            organizationId: input.organizationId || 'global',
+            language: input.language,
+            framework: input.framework,
+            environment: input.environment,
+            hostname: input.hostname,
+            metadata: input.metadata || input.requestData || undefined,
+            fingerprint: fp,
+          },
+        });
+
+        // Analyze + alert only on first occurrence
+        if (input.level === 'ERROR' || input.level === 'FATAL') {
+          ErrorLogger.analyzeAndAlert(fp, input).catch(() => {});
+        }
+      }
+
+      // 4. .jsonl audit trail (always, every occurrence)
+      ErrorLogWriter.write({
+        ts: new Date().toISOString(),
+        fp,
+        level: input.level,
+        msg: input.message,
+        stack: input.stack,
+        source: input.source,
+        category: input.category,
+        endpoint: input.endpoint,
+        language: input.language,
+        framework: input.framework,
+        environment: input.environment,
+        hostname: input.hostname,
+        orgId: input.organizationId,
+        projectId: input.projectId,
+        userId: input.userId,
+        meta: input.metadata || input.requestData,
+      });
+    } catch {
+      // DB failure must never crash the caller
+    }
+
+    return fp;
   }
 
-  /**
-   * Get recent error logs for an organization (dashboard).
-   * Reads from in-memory buffer, not DB.
-   */
+  private static async analyzeAndAlert(fp: string, input: ErrorLogInput): Promise<void> {
+    try {
+      const analysis = await GeminiLogAnalyzer.analyzeError({
+        message: input.message,
+        stack: input.stack,
+        source: input.source,
+        endpoint: input.endpoint,
+      });
+
+      // Persist analysis back to DB
+      const record = input.organizationId
+        ? await prisma.errorLog.findFirst({
+            where: { fingerprint: fp, organizationId: input.organizationId },
+            select: { id: true },
+          })
+        : null;
+
+      if (record) {
+        await prisma.errorLog.update({
+          where: { id: record.id },
+          data: {
+            analyzed: true,
+            aiAnalysis: analysis.rootCause,
+            aiSuggestion: analysis.suggestion,
+          },
+        });
+      }
+
+      // Email alert
+      if (input.organizationId) {
+        const emailSettings = await prisma.emailSettings.findUnique({
+          where: { organizationId: input.organizationId },
+        });
+
+        const shouldNotify =
+          emailSettings &&
+          ((input.level === 'ERROR' && emailSettings.notifyOnError) ||
+            (input.level === 'FATAL' && emailSettings.notifyOnFatal));
+
+        if (shouldNotify && emailSettings!.adminEmails.length > 0) {
+          await EmailService.sendErrorAlert({
+            to: emailSettings!.adminEmails,
+            errorMessage: input.message,
+            source: input.source,
+            endpoint: input.endpoint,
+            aiAnalysis: analysis.rootCause,
+            aiSuggestion: analysis.suggestion,
+            level: input.level,
+            timestamp: new Date().toISOString(),
+            smtpConfig: emailSettings!,
+          });
+
+          if (input.organizationId && record) {
+            await prisma.errorLog.update({
+              where: { id: record.id },
+              data: { emailSent: true },
+            });
+          }
+        }
+      }
+    } catch {
+      // Gemini/email failure is non-critical
+    }
+  }
+
+  // ─── Dashboard reads — all from DB ───
+
   static async getErrorLogs(
     organizationId: string,
-    options: { page?: number; limit?: number; level?: string; analyzed?: boolean; projectId?: string; category?: string }
+    options: {
+      page?: number;
+      limit?: number;
+      level?: string;
+      analyzed?: boolean;
+      projectId?: string;
+      category?: string;
+      date?: string; // YYYY-MM-DD — filter by day
+    }
   ) {
-    const { page = 1, limit = 50, level, category } = options;
-    const ingestion = ErrorIngestionService.getInstance();
+    const { page = 1, limit = 50, level, analyzed, projectId, category, date } = options;
+    const skip = (page - 1) * limit;
 
-    let logs = ingestion.getRecentErrors(organizationId, 1000);
+    const where: any = { organizationId };
+    if (level) where.level = level;
+    if (analyzed !== undefined) where.analyzed = analyzed;
+    if (projectId) where.projectId = projectId;
+    if (category) where.category = category;
+    if (date) {
+      const start = new Date(`${date}T00:00:00.000Z`);
+      const end = new Date(`${date}T23:59:59.999Z`);
+      where.lastSeenAt = { gte: start, lte: end };
+    }
 
-    // Apply filters
-    if (level) logs = logs.filter(e => e.level === level);
-    if (category) logs = logs.filter(e => e.category === category);
-    if (options.projectId) logs = logs.filter(e => e.projectId === options.projectId);
-    if (options.analyzed !== undefined) logs = logs.filter(e => e.analyzed === options.analyzed);
+    const [logs, total] = await Promise.all([
+      prisma.errorLog.findMany({
+        where,
+        orderBy: { lastSeenAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.errorLog.count({ where }),
+    ]);
 
-    const total = logs.length;
-    const paged = logs.slice((page - 1) * limit, page * limit);
-
-    return { logs: paged, total, page, totalPages: Math.ceil(total / limit) };
+    return { logs, total, page, totalPages: Math.ceil(total / limit) };
   }
 
-  /**
-   * Get error stats for dashboard.
-   */
-  static getStats(organizationId: string): OrgStats {
-    return ErrorIngestionService.getInstance().getStats(organizationId);
-  }
+  static async getStats(organizationId: string) {
+    const now = new Date();
+    const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const last7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-  /**
-   * Get fingerprint summaries (grouped errors).
-   */
-  static getFingerprintSummary(organizationId: string): FingerprintSummary[] {
-    return ErrorIngestionService.getInstance().getFingerprintSummary(organizationId);
-  }
-
-  /**
-   * Re-analyze a specific fingerprint with Gemini.
-   */
-  static async reanalyzeError(fingerprint: string) {
-    const ingestion = ErrorIngestionService.getInstance();
-    const entry = ingestion.getFingerprintDetail(fingerprint);
-    if (!entry) throw new Error('Error fingerprint not found');
-
-    const analysis = await GeminiLogAnalyzer.analyzeError({
-      message: entry.message,
-      stack: entry.stack,
-      source: entry.source,
-      endpoint: entry.endpoint,
-    });
-
-    // Update in-memory cache
-    entry.analyzed = true;
-    entry.aiAnalysis = analysis.rootCause;
-    entry.aiSuggestion = analysis.suggestion;
+    const [total, count24h, count7d, unanalyzed, byLevel, bySource, byCategory] =
+      await Promise.all([
+        prisma.errorLog.count({ where: { organizationId } }),
+        prisma.errorLog.count({ where: { organizationId, lastSeenAt: { gte: last24h } } }),
+        prisma.errorLog.count({ where: { organizationId, lastSeenAt: { gte: last7d } } }),
+        prisma.errorLog.count({ where: { organizationId, analyzed: false } }),
+        prisma.errorLog.groupBy({ by: ['level'], where: { organizationId }, _count: true }),
+        prisma.errorLog.groupBy({ by: ['source'], where: { organizationId }, _count: true }),
+        prisma.errorLog.groupBy({
+          by: ['category'],
+          where: { organizationId, category: { not: null } },
+          _count: true,
+        }),
+      ]);
 
     return {
-      fingerprint: entry.fingerprint,
-      message: entry.message,
-      source: entry.source,
-      aiAnalysis: analysis.rootCause,
-      aiSuggestion: analysis.suggestion,
-      analyzed: true,
+      total,
+      last24h: count24h,
+      last7d: count7d,
+      unanalyzed,
+      byLevel: Object.fromEntries(byLevel.map((r) => [r.level, r._count])),
+      bySource: Object.fromEntries(bySource.map((r) => [r.source, r._count])),
+      byCategory: Object.fromEntries(byCategory.map((r) => [r.category!, r._count])),
     };
   }
 
-  /**
-   * Read errors from log files for trend analysis.
-   */
+  static async getFingerprintSummary(organizationId: string) {
+    const logs = await prisma.errorLog.findMany({
+      where: { organizationId },
+      orderBy: { lastSeenAt: 'desc' },
+      select: {
+        id: true,
+        fingerprint: true,
+        level: true,
+        message: true,
+        source: true,
+        occurrenceCount: true,
+        createdAt: true,
+        lastSeenAt: true,
+        analyzed: true,
+        aiAnalysis: true,
+      },
+    });
+    return logs;
+  }
+
+  static async reanalyzeError(id: string) {
+    const entry = await prisma.errorLog.findUnique({ where: { id } });
+    if (!entry) throw new Error('Error log not found');
+
+    const analysis = await GeminiLogAnalyzer.analyzeError({
+      message: entry.message,
+      stack: entry.stack ?? undefined,
+      source: entry.source,
+      endpoint: entry.endpoint ?? undefined,
+    });
+
+    return prisma.errorLog.update({
+      where: { id },
+      data: {
+        analyzed: true,
+        aiAnalysis: analysis.rootCause,
+        aiSuggestion: analysis.suggestion,
+      },
+    });
+  }
+
   static async getLogEntries(organizationId: string, hours: number) {
     return ErrorLogWriter.readRecentLogs(organizationId, hours);
   }

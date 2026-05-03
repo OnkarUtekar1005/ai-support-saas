@@ -1,7 +1,8 @@
 # CRM of Techview — Technical Architecture Document
 
-**Version:** 2.0.0
-**Last Updated:** 2026-03-22
+**Version:** 2.1.0
+**Last Updated:** 2026-04-30
+**Changelog:** See `CHANGELOG.md` for full details of every change
 
 ---
 
@@ -29,16 +30,21 @@ CRM of Techview is a unified, multi-tenant SaaS platform that combines AI-powere
 | Runtime | Node.js 20+ | Server execution environment |
 | Framework | Express.js 4.x | HTTP API framework |
 | Language | TypeScript 5.6+ | Type-safe development |
-| ORM | Prisma 6.x | Database access, migrations, schema management |
-| Database | PostgreSQL 16 | Primary data store |
+| ORM | Prisma 6.x + `postgresqlExtensions` preview | Database access, migrations, schema management |
+| Database | PostgreSQL 16 + **pgvector** | Primary data store + vector similarity search |
+| Vector Search | pgvector `vector(768)` + IVFFlat index | RAG embeddings — DB-side cosine search (`<=>` operator) |
 | AI Model | Google Gemini 2.5 Flash | Ticket analysis, chat, SQL generation, error analysis |
+| AI Streaming | Gemini `generateContentStream()` + SSE | Real-time token streaming for chat |
+| AI Observability | **Langfuse** (optional) | LLM trace, latency, token usage, cost per call |
 | Embeddings | text-embedding-004 | RAG vector embeddings |
 | Real-time | Socket.IO 4.x | WebSocket for live chat and ticket analysis |
-| Auth | JWT (jsonwebtoken) | Stateless authentication |
+| Auth | JWT access tokens (15min) + HttpOnly refresh cookies (7d) | Stateless auth with secure refresh |
+| Cookies | cookie-parser | Parses HttpOnly refresh token cookies |
 | Email | Nodemailer | SMTP email delivery |
 | Logging | Winston | Structured file/console logging |
 | SQL Safety | node-sql-parser + regex | Multi-layer query validation |
 | Security | Helmet, CORS, express-rate-limit | HTTP hardening |
+| Tests | Jest + ts-jest + Supertest | Unit + middleware tests (46 passing) |
 
 ### 2.2 Frontend
 
@@ -48,6 +54,8 @@ CRM of Techview is a unified, multi-tenant SaaS platform that combines AI-powere
 | Build Tool | Vite 6 | Dev server and production bundler |
 | Styling | Tailwind CSS 3.4 | Utility-first CSS |
 | Routing | React Router 7 | Client-side navigation |
+| **Server State** | **TanStack React Query v5** | API data fetching, caching, background sync |
+| **Global State** | **Zustand v5** | Auth store with localStorage persistence |
 | Icons | Lucide React | Icon library |
 | Real-time | socket.io-client | WebSocket client |
 | Language | TypeScript | Type-safe frontend |
@@ -57,8 +65,9 @@ CRM of Techview is a unified, multi-tenant SaaS platform that combines AI-powere
 | Component | Technology |
 |-----------|-----------|
 | Containerization | Docker + Docker Compose |
+| PostgreSQL Image | `pgvector/pgvector:pg16` (includes pgvector extension) |
 | Reverse Proxy | Nginx (production) |
-| Database Hosting | PostgreSQL (Docker or managed) |
+| Database Hosting | PostgreSQL (Docker or managed — must have pgvector) |
 | Process Management | Node.js built-in (SIGTERM handling) |
 
 ---

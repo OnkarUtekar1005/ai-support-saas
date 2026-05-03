@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(npx jest *)",
+      "Bash(npx prisma *)",
+      "Bash(psql \"postgresql://postgres:Onki@1005@localhost:5432/ai_support_saas\" -c \"SELECT migration_name, finished_at, applied_steps_count FROM _prisma_migrations ORDER BY started_at;\")",
+      "Bash(grep -E \"\\\\.ts$\")",
+      "Bash(xargs wc *)",
+      "Bash(xargs grep *)",
+      "Bash(find . -name \"*.ts\" -type f -exec grep -l \"TODO\\\\|FIXME\\\\|HACK\\\\|XXX\" {} \\\\;)",
+      "Bash(npx tsc *)",
+      "Bash(Get-ChildItem -Path \"D:\\\\Projects\\\\ai-support-saas\" -Directory)",
+      "Bash(Select-Object -ExpandProperty Name)",
+      "Bash(sed \"s/Routes from '//\")",
+      "Bash(sed \"s/'$//\")",
+      "Bash(Remove-Item \"D:\\\\Projects\\\\ai-support-saas\\\\server\\\\src\\\\services\\\\logging\\\\ErrorIngestionService.ts\" -Force)",
+      "Bash(Remove-Item \"D:\\\\Projects\\\\ai-support-saas\\\\server\\\\src\\\\services\\\\logging\\\\__tests__\\\\ErrorIngestionService.test.ts\" -Force)",
+      "Bash(Remove-Item \"D:\\\\Projects\\\\ai-support-saas\\\\client\\\\src\\\\hooks\\\\useTickets.ts\" -Force)",
+      "Bash(Remove-Item \"D:\\\\Projects\\\\ai-support-saas\\\\client\\\\src\\\\hooks\\\\useContacts.ts\" -Force)",
+      "Bash(Remove-Item \"D:\\\\Projects\\\\ai-support-saas\\\\client\\\\src\\\\hooks\\\\useDeals.ts\" -Force)",
+      "PowerShell(New-Item *)",
+      "PowerShell(head *)",
+      "PowerShell(cd \"D:\\\\Projects\\\\ai-support-saas\\\\server\" && npx tsc --noEmit 2>&1 | Where-Object { $_ -match \"NotionStorageService|projectAttachments|documents\\\\.ts|DocumentProcessor\" })",
+      "Bash(Get-ChildItem -Path \"D:\\\\Projects\\\\ai-support-saas\\\\client\" -Force)",
+      "Bash(Select-Object Name, PSIsContainer)",
+      "PowerShell(Get-ChildItem -Path \"D:\\\\Projects\\\\ai-support-saas\\\\client\\\\src\" -Recurse -Force | Where-Object {!$_.PSIsContainer} | Select-Object FullName)",
+      "PowerShell(cd \"D:\\\\Projects\\\\ai-support-saas\\\\client\" && npx tsc --noEmit 2>&1 | Where-Object { $_ -match \"AppLayout\" })",
+      "PowerShell(cd \"D:\\\\Projects\\\\ai-support-saas\\\\client\" && npx tsc --noEmit 2>&1 | Where-Object { $_ -match \"AppLayout|index\\\\.css\" })"
+    ]
+  }
+}

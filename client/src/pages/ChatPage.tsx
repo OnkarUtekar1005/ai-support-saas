@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+﻿import { useState, useEffect, useRef } from 'react';
 import { api } from '../services/api';
 import { getSocket } from '../services/socket';
 import { Send, Plus, MessageSquare, ArrowLeft } from 'lucide-react';
@@ -79,11 +79,11 @@ export function ChatPage() {
               key={s.id}
               onClick={() => setActiveSession(s.id)}
               className={`w-full text-left px-4 py-3 border-b border-gray-50 transition-colors ${
-                activeSession === s.id ? 'bg-blue-50' : 'hover:bg-gray-50'
+                activeSession === s.id ? 'bg-sky-50' : 'hover:bg-gray-50'
               }`}
             >
               <div className="flex items-center gap-2.5">
-                <MessageSquare className={`w-4 h-4 flex-shrink-0 ${activeSession === s.id ? 'text-blue-600' : 'text-gray-400'}`} />
+                <MessageSquare className={`w-4 h-4 flex-shrink-0 ${activeSession === s.id ? 'text-sky-600' : 'text-gray-400'}`} />
                 <div className="min-w-0 flex-1">
                   <span className="text-sm font-medium text-gray-900 truncate block">
                     {s.ticket?.title || s.messages?.[0]?.content?.substring(0, 35) || 'New chat'}

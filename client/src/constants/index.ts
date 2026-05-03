@@ -1,8 +1,8 @@
-// ─── Color Mappings (used across all pages) ───
+﻿// ─── Color Mappings (used across all pages) ───
 
 export const STATUS_COLORS: Record<string, string> = {
   OPEN: 'bg-gray-100 text-gray-700',
-  IN_PROGRESS: 'bg-blue-100 text-blue-700',
+  IN_PROGRESS: 'bg-sky-100 text-sky-700',
   WAITING_CLARIFICATION: 'bg-amber-100 text-amber-700',
   RESOLVED: 'bg-green-100 text-green-700',
   CLOSED: 'bg-gray-200 text-gray-500',
@@ -16,7 +16,7 @@ export const PRIORITY_COLORS: Record<string, string> = {
 };
 
 export const LEVEL_COLORS: Record<string, string> = {
-  INFO: 'bg-blue-100 text-blue-700',
+  INFO: 'bg-sky-100 text-sky-700',
   WARN: 'bg-amber-100 text-amber-700',
   ERROR: 'bg-red-100 text-red-700',
   FATAL: 'bg-red-600 text-white',
@@ -30,7 +30,7 @@ export const ISSUE_CATEGORY_COLORS: Record<string, string> = {
 
 export const CONTACT_STATUS_COLORS: Record<string, string> = {
   ACTIVE: 'bg-green-100 text-green-700',
-  LEAD: 'bg-blue-100 text-blue-700',
+  LEAD: 'bg-sky-100 text-sky-700',
   CUSTOMER: 'bg-purple-100 text-purple-700',
   INACTIVE: 'bg-gray-100 text-gray-600',
   CHURNED: 'bg-red-100 text-red-700',
@@ -38,7 +38,7 @@ export const CONTACT_STATUS_COLORS: Record<string, string> = {
 
 export const ROLE_COLORS: Record<string, string> = {
   SUPER_ADMIN: 'bg-purple-100 text-purple-700',
-  ADMIN: 'bg-blue-100 text-blue-700',
+  ADMIN: 'bg-sky-100 text-sky-700',
   AGENT: 'bg-green-100 text-green-700',
   VIEWER: 'bg-gray-100 text-gray-600',
 };
@@ -46,20 +46,20 @@ export const ROLE_COLORS: Record<string, string> = {
 export const PROJECT_STATUS_COLORS: Record<string, string> = {
   ACTIVE: 'bg-green-100 text-green-700',
   PAUSED: 'bg-yellow-100 text-yellow-700',
-  COMPLETED: 'bg-blue-100 text-blue-700',
+  COMPLETED: 'bg-sky-100 text-sky-700',
   ARCHIVED: 'bg-gray-100 text-gray-600',
 };
 
 export const ACTIVITY_STATUS_COLORS: Record<string, string> = {
   TODO: 'bg-gray-100 text-gray-700',
-  IN_PROGRESS: 'bg-blue-100 text-blue-700',
+  IN_PROGRESS: 'bg-sky-100 text-sky-700',
   DONE: 'bg-green-100 text-green-700',
   CANCELLED: 'bg-red-100 text-red-700',
 };
 
 export const DEAL_STAGE_COLORS: Record<string, string> = {
   LEAD: 'border-t-gray-400',
-  QUALIFIED: 'border-t-blue-500',
+  QUALIFIED: 'border-t-sky-500',
   PROPOSAL: 'border-t-purple-500',
   NEGOTIATION: 'border-t-yellow-500',
   CLOSED_WON: 'border-t-green-500',
@@ -68,7 +68,7 @@ export const DEAL_STAGE_COLORS: Record<string, string> = {
 
 export const DEAL_STAGE_BG: Record<string, string> = {
   LEAD: 'bg-gray-50',
-  QUALIFIED: 'bg-blue-50/50',
+  QUALIFIED: 'bg-sky-50/50',
   PROPOSAL: 'bg-purple-50/50',
   NEGOTIATION: 'bg-yellow-50/50',
   CLOSED_WON: 'bg-green-50/50',

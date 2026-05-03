@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { Plus, Database, Trash2, Play, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 
@@ -99,7 +99,7 @@ export function DatabasesPage() {
             <div key={c.id} className="card">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <Database className="w-5 h-5 text-blue-600" />
+                  <Database className="w-5 h-5 text-sky-600" />
                   <div>
                     <div className="font-semibold text-sm">{c.name}</div>
                     <div className="text-xs text-gray-500">{c.host}:{c.port} / {c.database} ({c.dbType})</div>

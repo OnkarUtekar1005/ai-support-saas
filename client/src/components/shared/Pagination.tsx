@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+﻿import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface PaginationProps {
   page: number;
@@ -37,7 +37,7 @@ export function Pagination({ page, totalPages, total, onPageChange }: Pagination
               key={p}
               onClick={() => onPageChange(p)}
               className={`w-8 h-8 rounded-lg text-xs font-medium transition-colors ${
-                p === page ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'
+                p === page ? 'bg-sky-600 text-white' : 'text-gray-600 hover:bg-gray-100'
               }`}
             >
               {p}

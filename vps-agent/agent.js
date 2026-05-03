@@ -29,7 +29,36 @@ const CONFIG = {
   AGENT_KEY: process.env.AGENT_KEY || '', // Get from CRM → Pipeline → Agents
   POLL_INTERVAL: parseInt(process.env.POLL_INTERVAL || '30000'), // 30 seconds
   PROJECT_PATH: process.env.PROJECT_PATH || process.cwd(),
+  // Use a cheaper model for the analysis-only step (no file edits needed)
+  ANALYSIS_MODEL: process.env.ANALYSIS_MODEL || 'claude-haiku-4-5-20251001',
+  // Leave blank to use the default Claude Code model for the fix step
+  FIX_MODEL: process.env.FIX_MODEL || '',
 };
+
+// ─── Token budget (tune via env vars) ───
+const BUDGET = {
+  STACK_LINES: parseInt(process.env.MAX_STACK_LINES || '25'),      // ~500 tokens
+  GEMINI_CHARS: parseInt(process.env.MAX_GEMINI_CHARS || '600'),   // ~150 tokens
+  SUGGESTION_CHARS: parseInt(process.env.MAX_SUGGESTION_CHARS || '300'), // ~75 tokens
+  FIX_SUMMARY_CHARS: parseInt(process.env.MAX_FIX_SUMMARY_CHARS || '500'), // ~125 tokens
+};
+
+// Trim a stack trace to its top N non-empty lines
+function trimStack(stack) {
+  if (!stack) return '';
+  const lines = stack.split('\n').filter(l => l.trim());
+  const kept = lines.slice(0, BUDGET.STACK_LINES);
+  if (lines.length > BUDGET.STACK_LINES) {
+    kept.push(`[+${lines.length - BUDGET.STACK_LINES} lines omitted]`);
+  }
+  return kept.join('\n');
+}
+
+// Hard-truncate a string to maxChars
+function trunc(str, maxChars) {
+  if (!str || str.length <= maxChars) return str || '';
+  return str.substring(0, maxChars) + '…[truncated]';
+}
 
 if (!CONFIG.AGENT_KEY) {
   console.error('ERROR: AGENT_KEY is required. Set it via environment variable or edit agent.js');
@@ -96,18 +125,86 @@ function runCommand(cmd, cwd) {
   }
 }
 
+// ─── Error severity filter ───
+// Returns { critical: true } for system-breaking errors that warrant auto-fix.
+// Returns { critical: false, reason } for errors to skip (noise, user errors, etc.)
+function isCriticalError(pipeline) {
+  const msg   = (pipeline.errorMessage || '').toLowerCase();
+  const stack = (pipeline.errorStack   || '').toLowerCase();
+  const src   = (pipeline.errorSource  || '').toLowerCase();
+  const level = (pipeline.errorLevel   || pipeline.severity || '').toLowerCase();
+
+  // ── 1. Explicit severity field (if CRM sends it) ──────────────────────────
+  if (['fatal', 'critical'].includes(level)) return { critical: true };
+  if (['warning', 'warn', 'info', 'debug'].includes(level)) {
+    return { critical: false, reason: `severity=${level}` };
+  }
+
+  // ── 2. HTTP status codes — only 5xx warrants a fix ───────────────────────
+  const statusMatch = msg.match(/\b([1-5]\d{2})\b/) || src.match(/\b([1-5]\d{2})\b/);
+  if (statusMatch) {
+    const code = parseInt(statusMatch[1]);
+    if (code >= 400 && code < 500) {
+      return { critical: false, reason: `HTTP ${code} (client error — not a code bug)` };
+    }
+    if (code >= 500) return { critical: true };
+  }
+
+  // ── 3. Non-critical error type keywords ──────────────────────────────────
+  const SKIP_TYPES = [
+    'validationerror', 'validation error', 'validation failed',
+    'unauthorizederror', 'unauthorized', 'authentication failed', 'invalid token',
+    'notfounderror', 'not found', 'resource not found', 'route not found',
+    'forbidden', 'access denied', 'permission denied',
+    'ratelimiterror', 'rate limit', 'too many requests',
+    'deprecationwarning', 'deprecation warning',
+    'sequelizeuniqueconstranterror', 'unique constraint',
+    'badrequest', 'bad request', 'invalid input', 'invalid request',
+  ];
+  for (const pattern of SKIP_TYPES) {
+    if (msg.includes(pattern)) {
+      return { critical: false, reason: `matches non-critical pattern: "${pattern}"` };
+    }
+  }
+
+  // ── 4. Critical error type keywords ─────────────────────────────────────
+  const CRITICAL_TYPES = [
+    'unhandledpromiserejection', 'uncaughtexception',
+    'cannot read propert', 'cannot read properties',  // NullPointerException equiv
+    'is not a function', 'is not defined',
+    'typeerror', 'referenceerror', 'syntaxerror',
+    'econnrefused', 'enotfound', 'econnreset', 'etimedout',  // network/DB unreachable
+    'out of memory', 'heap out of memory', 'javascript heap',
+    'module not found', "cannot find module",
+    'database connection', 'connection refused', 'connection lost',
+    'server crashed', 'process exited', 'fatal error',
+    'failed to start', 'failed to connect',
+    'prismaerror', 'prisma', 'sequelizeconnectionerror',
+    'error: listen', 'address already in use',
+  ];
+  for (const pattern of CRITICAL_TYPES) {
+    if (msg.includes(pattern) || stack.includes(pattern)) {
+      return { critical: true };
+    }
+  }
+
+  // ── 5. Default: skip unknown errors (conservative — avoids wasting tokens) ─
+  return { critical: false, reason: 'not matched as a known critical pattern — skipped by default' };
+}
+
 // ─── Run Claude Code CLI ───
-function runClaudeCode(prompt, projectPath) {
+// Pass model='' to use the default configured model
+function runClaudeCode(prompt, projectPath, model) {
   return new Promise((resolve, reject) => {
+    const args = ['--print', '--dangerously-skip-permissions'];
+    if (model) args.push('--model', model);
+
     console.log('  Running Claude Code CLI...');
     console.log('  Working dir:', projectPath || CONFIG.PROJECT_PATH);
+    console.log('  Model:', model || '(default)');
+    console.log(`  Prompt size: ${prompt.length} chars`);
 
-    console.log('  Sending prompt via stdin to: claude --print --dangerously-skip-permissions');
-
-    const child = spawn('claude', [
-      '--print',
-      '--dangerously-skip-permissions',
-    ], {
+    const child = spawn('claude', args, {
       cwd: projectPath || CONFIG.PROJECT_PATH,
       timeout: 600000,
       env: { ...process.env },
@@ -156,21 +253,36 @@ async function processPipeline(pipeline) {
   console.log(`\n  Processing pipeline: ${id}`);
   console.log(`  Error: ${pipeline.errorMessage.substring(0, 100)}`);
 
+  // ── Severity gate: skip non-critical errors ───────────────────────────────
+  const severity = isCriticalError(pipeline);
+  if (!severity.critical) {
+    console.log(`  [SKIPPED] Not a critical/system-breaking error.`);
+    console.log(`  Reason: ${severity.reason}`);
+    await crmRequest('/report', 'POST', {
+      pipelineId: id,
+      stage: 'SKIPPED',
+      claudeFixSummary: `Auto-fix skipped: ${severity.reason}. Only system-breaking errors are auto-fixed.`,
+    }).catch(() => {});
+    return;
+  }
+  console.log(`  [CRITICAL] Proceeding with auto-fix.`);
+
   try {
     // Step 1: Analyze with Claude Code
     if (pipeline.status === 'ANALYZING') {
       console.log('\n  [1/5] Running Claude Code analysis...');
 
-      const analysisPrompt = pipeline.claudePrompt || `
-Analyze this error and tell me what the fix would be. Do NOT make changes yet.
-Just explain what needs to change and why.
+      // If Gemini already analyzed it, just ask Claude to confirm the file/line to change.
+      // Otherwise ask Claude to find the root cause from the stack trace.
+      // Either way: use the cheaper Haiku model — no file edits needed here.
+      const hasGeminiContext = !!(pipeline.geminiSuggestion || pipeline.geminiAnalysis);
 
-ERROR: ${pipeline.errorMessage}
-${pipeline.errorStack ? `STACK: ${pipeline.errorStack}` : ''}
-${pipeline.geminiAnalysis ? `PREVIOUS ANALYSIS: ${pipeline.geminiAnalysis}` : ''}
-`;
+      const analysisPrompt = pipeline.claudePrompt || (hasGeminiContext
+        ? `Error in ${pipeline.errorSource || 'app'}:\nERROR: ${pipeline.errorMessage}\nGEMINI FIX: ${trunc(pipeline.geminiSuggestion || pipeline.geminiAnalysis, BUDGET.GEMINI_CHARS)}\n\nIdentify the exact file(s) and line(s) to change. Give a 2-sentence fix plan. Do NOT edit any files.`
+        : `Error in ${pipeline.errorSource || 'app'}:\nERROR: ${pipeline.errorMessage}\nSTACK:\n${trimStack(pipeline.errorStack)}\n\nFind the root cause and describe the minimal fix in 3 sentences. Do NOT edit any files.`
+      );
 
-      const result = await runClaudeCode(analysisPrompt, CONFIG.PROJECT_PATH);
+      const result = await runClaudeCode(analysisPrompt, CONFIG.PROJECT_PATH, CONFIG.ANALYSIS_MODEL);
 
       await crmRequest('/report', 'POST', {
         pipelineId: id,
@@ -200,24 +312,19 @@ ${pipeline.geminiAnalysis ? `PREVIOUS ANALYSIS: ${pipeline.geminiAnalysis}` : ''
       // Step 3: Apply the fix with Claude Code
       console.log('\n  [3/5] Applying fix with Claude Code...');
 
-      const fixPrompt = `
-Fix this error. Make the minimal change needed.
-
-ERROR: ${pipeline.errorMessage}
-${pipeline.errorStack ? `STACK: ${pipeline.errorStack}` : ''}
-${pipeline.geminiAnalysis ? `ANALYSIS: ${pipeline.geminiAnalysis}` : ''}
-${pipeline.geminiSuggestion ? `SUGGESTION: ${pipeline.geminiSuggestion}` : ''}
-${pipeline.claudeFixSummary ? `PROPOSED FIX: ${pipeline.claudeFixSummary}` : ''}
-
-Apply the fix now. Only change what's necessary.
-`;
+      // If we have a fix plan from the analysis step, use ONLY that + the error message.
+      // Do NOT re-include the full stack trace or Gemini analysis — they were already
+      // summarized into claudeFixSummary and bloat tokens with no added value.
+      const fixPrompt = pipeline.claudeFixSummary
+        ? `Fix this error with minimal changes:\nERROR: ${pipeline.errorMessage}\nFIX PLAN: ${trunc(pipeline.claudeFixSummary, BUDGET.FIX_SUMMARY_CHARS)}\n\nApply the fix now. Edit only what's necessary.`
+        : `Fix this error with minimal changes:\nERROR: ${pipeline.errorMessage}\n${trimStack(pipeline.errorStack) ? `STACK:\n${trimStack(pipeline.errorStack)}\n` : ''}${pipeline.geminiSuggestion ? `SUGGESTION: ${trunc(pipeline.geminiSuggestion, BUDGET.SUGGESTION_CHARS)}\n` : ''}\nApply the fix now. Edit only what's necessary.`;
 
       await crmRequest('/report', 'POST', {
         pipelineId: id,
         stage: 'FIXING',
       });
 
-      const fixResult = await runClaudeCode(fixPrompt, CONFIG.PROJECT_PATH);
+      const fixResult = await runClaudeCode(fixPrompt, CONFIG.PROJECT_PATH, CONFIG.FIX_MODEL);
 
       // Report Claude output regardless of success
       await crmRequest('/report', 'POST', {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { Wrench, Bot, Bell, ChevronRight, Search, Settings } from 'lucide-react';
@@ -73,7 +73,7 @@ export function AgentConfigPage() {
                   <div className="flex items-center gap-3 flex-1 min-w-0">
                     <div className="w-3.5 h-3.5 rounded-full flex-shrink-0" style={{ backgroundColor: p.color || '#6b7280' }} />
                     <div className="min-w-0">
-                      <div className="font-semibold text-gray-900 group-hover:text-blue-600 transition-colors truncate">{p.name}</div>
+                      <div className="font-semibold text-gray-900 group-hover:text-sky-600 transition-colors truncate">{p.name}</div>
                       {p.description && <div className="text-xs text-gray-400 truncate mt-0.5">{p.description}</div>}
                     </div>
                     <StatusBadge status={p.status || 'ACTIVE'} colorMap={PROJECT_STATUS_COLORS} />
@@ -95,7 +95,7 @@ export function AgentConfigPage() {
                     </div>
                   </div>
 
-                  <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-blue-500 transition-colors flex-shrink-0" />
+                  <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-sky-500 transition-colors flex-shrink-0" />
                 </div>
 
                 {/* Mobile agent status row */}

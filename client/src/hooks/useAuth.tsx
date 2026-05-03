@@ -1,28 +1,16 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { api } from '../services/api';
-
-interface User {
-  id: string;
-  email: string;
-  name: string;
-  role: string;
-}
-
-interface Org {
-  id: string;
-  name: string;
-  slug: string;
-  plan?: string;
-}
+import { useAuthStore } from '../store/authStore';
+import { queryClient } from '../lib/queryClient';
 
 interface AuthContextType {
-  user: User | null;
-  organization: Org | null;
+  user: ReturnType<typeof useAuthStore>['user'];
+  organization: ReturnType<typeof useAuthStore>['organization'];
   token: string | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (orgName: string, email: string, password: string, name: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   isAdmin: boolean;
   isSuperAdmin: boolean;
 }
@@ -30,50 +18,52 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [organization, setOrganization] = useState<Org | null>(null);
-  const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
-  const [loading, setLoading] = useState(true);
+  const { user, organization, token, setAuth, clearAuth, updateToken } = useAuthStore();
+  const [loading, setLoading] = useState(!user); // skip loading if already hydrated from localStorage
 
   useEffect(() => {
-    if (token) {
-      api.getMe()
-        .then((data: any) => {
-          setUser(data.user);
-          setOrganization(data.organization);
-        })
-        .catch(() => {
-          localStorage.removeItem('token');
-          setToken(null);
-        })
-        .finally(() => setLoading(false));
-    } else {
+    if (!token) {
       setLoading(false);
+      return;
     }
-  }, [token]);
+    api.getMe()
+      .then((data: any) => {
+        setAuth(data.user, data.organization, token);
+      })
+      .catch(async () => {
+        // Access token expired — try refreshing
+        try {
+          const refreshed: any = await api.refreshToken();
+          updateToken(refreshed.token);
+          const data: any = await api.getMe();
+          setAuth(data.user, data.organization, refreshed.token);
+        } catch {
+          clearAuth();
+          queryClient.clear();
+        }
+      })
+      .finally(() => setLoading(false));
+  }, []); // run once on mount
 
   const login = useCallback(async (email: string, password: string) => {
     const data: any = await api.login({ email, password });
-    localStorage.setItem('token', data.token);
-    setToken(data.token);
-    setUser(data.user);
-    setOrganization(data.organization);
-  }, []);
+    setAuth(data.user, data.organization, data.token);
+  }, [setAuth]);
 
   const register = useCallback(async (orgName: string, email: string, password: string, name: string) => {
     const data: any = await api.register({ orgName, email, password, name });
-    localStorage.setItem('token', data.token);
-    setToken(data.token);
-    setUser(data.user);
-    setOrganization(data.organization);
-  }, []);
+    setAuth(data.user, data.organization, data.token);
+  }, [setAuth]);
 
-  const logout = useCallback(() => {
-    localStorage.removeItem('token');
-    setToken(null);
-    setUser(null);
-    setOrganization(null);
-  }, []);
+  const logout = useCallback(async () => {
+    try {
+      await api.logout();
+    } catch {
+      // server logout is best-effort
+    }
+    clearAuth();
+    queryClient.clear();
+  }, [clearAuth]);
 
   return (
     <AuthContext.Provider value={{

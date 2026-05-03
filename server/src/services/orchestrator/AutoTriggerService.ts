@@ -208,8 +208,7 @@ export class AutoTriggerService {
   }
 
   /**
-   * Create a pipeline from in-memory error data (no DB errorLog needed).
-   * Used by ErrorIngestionService when errors go to log files only.
+   * Create a pipeline from raw error data when no ErrorLog DB record exists yet.
    */
   static async createPipelineFromIngestion(
     error: {

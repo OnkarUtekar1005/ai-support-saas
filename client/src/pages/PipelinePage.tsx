@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { Pagination } from '../components/shared';
 import {
@@ -8,12 +8,12 @@ import {
 
 const STATUS_CONFIG: Record<string, { color: string; icon: any; label: string }> = {
   DETECTED: { color: 'bg-gray-100 text-gray-700', icon: AlertTriangle, label: 'Detected' },
-  ANALYZING: { color: 'bg-blue-100 text-blue-700', icon: RefreshCw, label: 'Analyzing' },
+  ANALYZING: { color: 'bg-sky-100 text-sky-700', icon: RefreshCw, label: 'Analyzing' },
   FIX_PROPOSED: { color: 'bg-purple-100 text-purple-700', icon: Eye, label: 'Fix Proposed' },
   AWAITING_APPROVAL: { color: 'bg-amber-100 text-amber-700', icon: Clock, label: 'Awaiting Approval' },
   APPROVED: { color: 'bg-green-100 text-green-700', icon: CheckCircle, label: 'Approved' },
-  FIXING: { color: 'bg-blue-100 text-blue-700', icon: Zap, label: 'Fixing...' },
-  TESTING: { color: 'bg-blue-100 text-blue-700', icon: Play, label: 'Testing' },
+  FIXING: { color: 'bg-sky-100 text-sky-700', icon: Zap, label: 'Fixing...' },
+  TESTING: { color: 'bg-sky-100 text-sky-700', icon: Play, label: 'Testing' },
   COMMITTED: { color: 'bg-green-100 text-green-700', icon: CheckCircle, label: 'Fixed' },
   PR_CREATED: { color: 'bg-indigo-100 text-indigo-700', icon: GitBranch, label: 'PR Created' },
   DEPLOYING: { color: 'bg-orange-100 text-orange-700', icon: Rocket, label: 'Deploying' },
@@ -136,7 +136,7 @@ export function PipelinePage() {
             key={t.key}
             onClick={() => setTab(t.key as any)}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-              tab === t.key ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'
+              tab === t.key ? 'border-sky-600 text-sky-600' : 'border-transparent text-gray-500'
             }`}
           >
             <t.icon className="w-4 h-4" /> {t.label}
@@ -184,7 +184,7 @@ export function PipelinePage() {
                   {progress >= 0 && (
                     <div className="flex gap-0.5 mt-3">
                       {stages.map((s, i) => (
-                        <div key={s} className={`h-1.5 flex-1 rounded-full ${i <= progress ? 'bg-blue-600' : 'bg-gray-200'}`} />
+                        <div key={s} className={`h-1.5 flex-1 rounded-full ${i <= progress ? 'bg-sky-600' : 'bg-gray-200'}`} />
                       ))}
                     </div>
                   )}
@@ -205,7 +205,7 @@ export function PipelinePage() {
                           {detail.geminiAnalysis && (
                             <div className="mb-3">
                               <div className="text-xs font-medium text-gray-500 mb-1">Gemini Analysis</div>
-                              <div className="text-sm bg-blue-50 p-3 rounded-lg text-blue-800">{detail.geminiAnalysis}</div>
+                              <div className="text-sm bg-sky-50 p-3 rounded-lg text-sky-800">{detail.geminiAnalysis}</div>
                             </div>
                           )}
                           {detail.vpsAgent && (
@@ -248,7 +248,7 @@ export function PipelinePage() {
                         <div className="flex gap-4 text-xs text-gray-600">
                           {detail.branchName && <span className="flex items-center gap-1"><GitBranch className="w-3.5 h-3.5" /> {detail.branchName}</span>}
                           {detail.commitHash && <span>Commit: <code>{detail.commitHash}</code></span>}
-                          {detail.prUrl && <a href={detail.prUrl} target="_blank" className="text-blue-600 underline">View PR</a>}
+                          {detail.prUrl && <a href={detail.prUrl} target="_blank" className="text-sky-600 underline">View PR</a>}
                         </div>
                       )}
 

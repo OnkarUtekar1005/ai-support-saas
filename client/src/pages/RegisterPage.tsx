@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { Eye, EyeOff } from 'lucide-react';
@@ -32,7 +32,7 @@ export function RegisterPage() {
       <div className="hidden lg:flex lg:w-1/2 bg-gray-950 items-center justify-center p-12">
         <div className="max-w-md">
           <div className="flex items-center gap-3 mb-8">
-            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center">
+            <div className="w-10 h-10 bg-sky-600 rounded-xl flex items-center justify-center">
               <span className="text-white font-black text-lg">T</span>
             </div>
             <div>
@@ -51,7 +51,7 @@ export function RegisterPage() {
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="w-full max-w-sm animate-page-in">
           <div className="lg:hidden flex items-center gap-2 mb-8">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+            <div className="w-8 h-8 bg-sky-600 rounded-lg flex items-center justify-center">
               <span className="text-white font-black text-sm">T</span>
             </div>
             <span className="font-bold text-gray-900">CRM of Techview</span>
@@ -104,7 +104,7 @@ export function RegisterPage() {
 
           <p className="text-center text-sm text-gray-500 mt-6">
             Already have an account?{' '}
-            <Link to="/login" className="text-blue-600 hover:underline font-medium">Sign in</Link>
+            <Link to="/login" className="text-sky-600 hover:underline font-medium">Sign in</Link>
           </p>
         </div>
       </div>

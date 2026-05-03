@@ -16,10 +16,11 @@ const taskAnalyzer = new TaskAnalyzer(geminiClient);
 const resolutionEngine = new ResolutionEngine(geminiClient);
 const vectorStore = new VectorStore();
 
-// List tickets for organization
+// List tickets — cursor-based pagination
 ticketRoutes.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    const { page = '1', limit = '20', status, priority } = req.query;
+    const { cursor, limit = '20', status, priority } = req.query;
+    const take = Math.min(Number(limit), 100);
     const where: any = { organizationId: req.user!.organizationId };
     if (status) where.status = status;
     if (priority) where.priority = priority;
@@ -30,21 +31,34 @@ ticketRoutes.get('/', async (req: AuthRequest, res: Response) => {
       where.projectId = { in: allowedIds };
     }
 
-    const [tickets, total] = await Promise.all([
-      prisma.ticket.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip: (Number(page) - 1) * Number(limit),
-        take: Number(limit),
-        include: {
-          createdBy: { select: { name: true, email: true } },
-          assignee: { select: { id: true, name: true, email: true } },
-        },
-      }),
-      prisma.ticket.count({ where }),
-    ]);
+    // Decode cursor: base64-encoded JSON { createdAt, id }
+    if (cursor) {
+      const { createdAt, id } = JSON.parse(Buffer.from(cursor as string, 'base64').toString());
+      where.OR = [
+        { createdAt: { lt: new Date(createdAt) } },
+        { createdAt: new Date(createdAt), id: { lt: id } },
+      ];
+    }
 
-    res.json({ tickets, total, page: Number(page), totalPages: Math.ceil(total / Number(limit)) });
+    const tickets = await prisma.ticket.findMany({
+      where,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: take + 1,
+      include: {
+        createdBy: { select: { name: true, email: true } },
+        assignee: { select: { id: true, name: true, email: true } },
+        project: { select: { id: true, name: true, color: true } },
+      },
+    });
+
+    const hasNextPage = tickets.length > take;
+    if (hasNextPage) tickets.pop();
+
+    const nextCursor = hasNextPage
+      ? Buffer.from(JSON.stringify({ createdAt: tickets[tickets.length - 1].createdAt, id: tickets[tickets.length - 1].id })).toString('base64')
+      : null;
+
+    res.json({ tickets, nextCursor, hasNextPage });
   } catch (err) {
     await ErrorLogger.logError({
       level: 'ERROR', message: (err as Error).message, stack: (err as Error).stack,
@@ -58,6 +72,17 @@ ticketRoutes.get('/', async (req: AuthRequest, res: Response) => {
 ticketRoutes.post('/', async (req: AuthRequest, res: Response) => {
   try {
     const { title, description, priority, assigneeId, projectId } = req.body;
+
+    // Tickets must belong to a project
+    if (!projectId) return res.status(400).json({ error: 'A project is required to create a ticket' });
+
+    // Verify user is a member of the project (SUPER_ADMIN exempt)
+    if (req.user!.role !== 'SUPER_ADMIN') {
+      const membership = await prisma.projectMember.findUnique({
+        where: { projectId_userId: { projectId, userId: req.user!.id } },
+      });
+      if (!membership) return res.status(403).json({ error: 'You are not a member of this project' });
+    }
 
     // Create ticket
     const ticket = await prisma.ticket.create({

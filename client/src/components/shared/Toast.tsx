@@ -1,4 +1,4 @@
-import { useState, useCallback, createContext, useContext } from 'react';
+﻿import { useState, useCallback, createContext, useContext } from 'react';
 import { CheckCircle, AlertTriangle, X, Info } from 'lucide-react';
 
 type ToastType = 'success' | 'error' | 'info';
@@ -58,9 +58,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const colors = {
     success: 'bg-green-50 border-green-200 text-green-800',
     error: 'bg-red-50 border-red-200 text-red-800',
-    info: 'bg-blue-50 border-blue-200 text-blue-800',
+    info: 'bg-sky-50 border-sky-200 text-sky-800',
   };
-  const iconColors = { success: 'text-green-500', error: 'text-red-500', info: 'text-blue-500' };
+  const iconColors = { success: 'text-green-500', error: 'text-red-500', info: 'text-sky-500' };
 
   return (
     <ToastContext.Provider value={{ toast: toastFn }}>

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+﻿import { useState, useRef, useEffect } from 'react';
 import { Search, ChevronDown, X, FolderOpen } from 'lucide-react';
 
 interface Project {
@@ -82,7 +82,7 @@ export function ProjectSelector({ projects, value, onChange, placeholder = 'Sele
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search projects..."
-                className="w-full pl-8 pr-3 py-1.5 text-sm bg-gray-50 border border-gray-200 rounded-lg outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400/20"
+                className="w-full pl-8 pr-3 py-1.5 text-sm bg-gray-50 border border-gray-200 rounded-lg outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400/20"
               />
             </div>
           </div>
@@ -92,7 +92,7 @@ export function ProjectSelector({ projects, value, onChange, placeholder = 'Sele
             {allowAll && (
               <button
                 onClick={() => { onChange(''); setOpen(false); setSearch(''); }}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-gray-50 transition-colors text-left ${value === '' ? 'bg-blue-50 text-blue-700' : 'text-gray-600'}`}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-gray-50 transition-colors text-left ${value === '' ? 'bg-sky-50 text-sky-700' : 'text-gray-600'}`}
               >
                 <FolderOpen className="w-4 h-4 text-gray-400" />
                 {allLabel}
@@ -105,7 +105,7 @@ export function ProjectSelector({ projects, value, onChange, placeholder = 'Sele
                 <button
                   key={p.id}
                   onClick={() => { onChange(p.id); setOpen(false); setSearch(''); }}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-gray-50 transition-colors text-left ${value === p.id ? 'bg-blue-50 text-blue-700' : 'text-gray-900'}`}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-gray-50 transition-colors text-left ${value === p.id ? 'bg-sky-50 text-sky-700' : 'text-gray-900'}`}
                 >
                   <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: p.color || '#6b7280' }} />
                   <span className="truncate">{p.name}</span>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
 import { Plus, CheckCircle, Circle, Clock, Phone, Mail, Calendar, FileText, ArrowRight, StickyNote, Activity } from 'lucide-react';
@@ -92,7 +92,7 @@ export function ActivitiesPage() {
               <Clock className="w-3.5 h-3.5" />{formatDate(a.dueDate)}
             </span>
           )}
-          <StatusBadge status={a.type} colorMap={{ TASK: 'bg-gray-100 text-gray-600', CALL: 'bg-blue-100 text-blue-700', EMAIL: 'bg-purple-100 text-purple-700', MEETING: 'bg-teal-100 text-teal-700', NOTE: 'bg-yellow-100 text-yellow-700', FOLLOW_UP: 'bg-orange-100 text-orange-700' }} />
+          <StatusBadge status={a.type} colorMap={{ TASK: 'bg-gray-100 text-gray-600', CALL: 'bg-sky-100 text-sky-700', EMAIL: 'bg-purple-100 text-purple-700', MEETING: 'bg-teal-100 text-teal-700', NOTE: 'bg-yellow-100 text-yellow-700', FOLLOW_UP: 'bg-orange-100 text-orange-700' }} />
         </div>
       </div>
     );
@@ -120,7 +120,7 @@ export function ActivitiesPage() {
           {activeItems.length > 0 && (
             <div>
               <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-blue-500" />Active ({activeItems.length})
+                <span className="w-2 h-2 rounded-full bg-sky-500" />Active ({activeItems.length})
               </h2>
               <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100 overflow-hidden">
                 {activeItems.map((a) => renderRow(a, false))}

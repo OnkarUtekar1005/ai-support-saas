@@ -3,7 +3,7 @@ import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import {
   LayoutDashboard, Ticket, MessageSquare, AlertTriangle, Settings, LogOut,
-  FolderOpen, UserCircle, Building2, DollarSign, Activity, Plug, Bot, Database,
+  FolderOpen, UserCircle, Building2, Receipt, Activity, Plug, Bot, Database,
   Menu, X, Search, ChevronLeft, Bell, ChevronRight, Zap, BookOpen, ClipboardList,
   Check,
 } from 'lucide-react';
@@ -43,7 +43,7 @@ const navSections: NavSection[] = [
       { to: '/projects', icon: FolderOpen, label: 'Projects' },
       { to: '/contacts', icon: UserCircle, label: 'Contacts' },
       { to: '/companies', icon: Building2, label: 'Companies' },
-      { to: '/deals', icon: DollarSign, label: 'Deals' },
+      { to: '/invoices', icon: Receipt, label: 'Invoices' },
       { to: '/activities', icon: Activity, label: 'Activities' },
     ],
   },
@@ -62,7 +62,6 @@ const navSections: NavSection[] = [
   },
 ];
 
-// All searchable pages for quick nav
 const searchablePages = [
   { label: 'Dashboard', path: '/', keywords: 'home overview stats' },
   { label: 'My Tasks', path: '/my-tasks', keywords: 'tasks assigned me todo' },
@@ -71,7 +70,7 @@ const searchablePages = [
   { label: 'Projects', path: '/projects', keywords: 'project team' },
   { label: 'Contacts', path: '/contacts', keywords: 'people customers leads' },
   { label: 'Companies', path: '/companies', keywords: 'accounts organizations' },
-  { label: 'Deals', path: '/deals', keywords: 'pipeline sales revenue' },
+  { label: 'Invoices', path: '/invoices', keywords: 'invoice billing po wo revenue payment' },
   { label: 'Activities', path: '/activities', keywords: 'tasks calls meetings' },
   { label: 'Chatbot Config', path: '/chatbot', keywords: 'widget bot configure' },
   { label: 'Integrations', path: '/integrations', keywords: 'api keys sdk connect' },
@@ -89,6 +88,15 @@ export function AppLayout() {
 
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+
+  const toggleSection = (title: string) => {
+    setCollapsedSections((prev) => {
+      const next = new Set(prev);
+      next.has(title) ? next.delete(title) : next.add(title);
+      return next;
+    });
+  };
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
@@ -98,10 +106,8 @@ export function AppLayout() {
   const [notifLoading, setNotifLoading] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
 
-  // Close mobile sidebar on navigation
   useEffect(() => { setMobileOpen(false); }, [location.pathname]);
 
-  // Keyboard shortcut: Ctrl+K for search
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
@@ -118,12 +124,10 @@ export function AppLayout() {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  // Fetch unread notification count on mount
   useEffect(() => {
     api.getUnreadCount().then((data: any) => setUnreadCount(data.count || 0)).catch(() => {});
   }, [location.pathname]);
 
-  // Close notification dropdown when clicking outside
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (notifRef.current && !notifRef.current.contains(e.target as Node)) setNotifOpen(false);
@@ -177,7 +181,6 @@ export function AppLayout() {
     setSearchQuery('');
   }, [navigate]);
 
-  // Get page title from path
   const getPageTitle = () => {
     const flat = navSections.flatMap((s) => s.items);
     const match = flat.find((item) =>
@@ -186,12 +189,11 @@ export function AppLayout() {
     return match?.label || 'Dashboard';
   };
 
-  // Sidebar content (shared between desktop and mobile)
   const SidebarContent = ({ isMobile = false }: { isMobile?: boolean }) => (
     <>
       {/* Logo */}
-      <div className={`h-14 flex items-center border-b border-gray-800/50 ${collapsed && !isMobile ? 'justify-center px-2' : 'gap-2.5 px-4'}`}>
-        <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
+      <div className={`h-14 flex items-center border-b border-white/[0.06] ${collapsed && !isMobile ? 'justify-center px-2' : 'gap-2.5 px-4'}`}>
+        <div className="w-8 h-8 bg-sky-500 rounded-lg flex items-center justify-center flex-shrink-0 shadow-lg shadow-sky-500/30">
           <span className="text-white font-black text-sm">T</span>
         </div>
         {(!collapsed || isMobile) && (
@@ -203,13 +205,13 @@ export function AppLayout() {
         {!isMobile && (
           <button
             onClick={() => setCollapsed(!collapsed)}
-            className="ml-auto p-1 text-gray-500 hover:text-white rounded transition-colors hidden lg:block"
+            className="ml-auto p-1.5 text-gray-500 hover:text-white rounded-md transition-all duration-200 hover:bg-white/[0.07] hover:backdrop-blur-sm hidden lg:block"
           >
             {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
           </button>
         )}
         {isMobile && (
-          <button onClick={() => setMobileOpen(false)} className="ml-auto p-1 text-gray-400 hover:text-white">
+          <button onClick={() => setMobileOpen(false)} className="ml-auto p-1.5 text-gray-400 hover:text-white rounded-md transition-all duration-200 hover:bg-white/[0.07] hover:backdrop-blur-sm">
             <X className="w-5 h-5" />
           </button>
         )}
@@ -221,61 +223,78 @@ export function AppLayout() {
           const visibleItems = section.items.filter((item) => !item.adminOnly || isAdmin);
           if (visibleItems.length === 0) return null;
 
+          const isSectionCollapsed = section.title ? collapsedSections.has(section.title) : false;
+
           return (
             <div key={section.title || 'main'} className="mb-0.5">
+              {/* Titled section header — clickable to collapse when sidebar is expanded */}
               {section.title && (!collapsed || isMobile) && (
-                <div className="px-3 pt-5 pb-1.5 text-[10px] font-semibold text-gray-600 tracking-widest uppercase select-none">
-                  {section.title}
+                <button
+                  onClick={() => toggleSection(section.title)}
+                  className="w-full flex items-center justify-between px-3 pt-5 pb-1.5 group"
+                >
+                  <span className="text-[10px] font-semibold text-gray-500 tracking-widest uppercase group-hover:text-gray-300 transition-colors duration-150">
+                    {section.title}
+                  </span>
+                  <ChevronRight
+                    className={`w-3 h-3 text-gray-600 group-hover:text-gray-400 transition-all duration-200 ${
+                      isSectionCollapsed ? 'rotate-0' : 'rotate-90'
+                    }`}
+                  />
+                </button>
+              )}
+              {/* Divider when sidebar is icon-only */}
+              {section.title && collapsed && !isMobile && (
+                <div className="my-2 mx-2 border-t border-white/[0.06]" />
+              )}
+              {/* Items — hidden when section is collapsed (only in expanded sidebar) */}
+              {(!isSectionCollapsed || collapsed || isMobile) && (
+                <div className="space-y-0.5">
+                  {visibleItems.map((item) => (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      end={item.end}
+                      title={collapsed && !isMobile ? item.label : undefined}
+                      className={({ isActive }) =>
+                        `flex items-center rounded-lg transition-all duration-200 ${
+                          collapsed && !isMobile
+                            ? 'justify-center p-2.5'
+                            : 'gap-2.5 px-3 py-2'
+                        } text-[13px] font-medium ${
+                          isActive
+                            ? 'bg-sky-500/[0.18] text-sky-300 ring-1 ring-sky-400/30 shadow-md shadow-sky-900/40 backdrop-blur-sm'
+                            : 'text-gray-400 hover:bg-white/[0.07] hover:backdrop-blur-sm hover:text-white hover:ring-1 hover:ring-white/[0.06]'
+                        }`
+                      }
+                    >
+                      <item.icon className="w-[18px] h-[18px] flex-shrink-0" />
+                      {(!collapsed || isMobile) && <span className="truncate">{item.label}</span>}
+                    </NavLink>
+                  ))}
                 </div>
               )}
-              {section.title && collapsed && !isMobile && (
-                <div className="my-2 mx-2 border-t border-gray-800" />
-              )}
-              <div className="space-y-0.5">
-                {visibleItems.map((item) => (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    end={item.end}
-                    title={collapsed && !isMobile ? item.label : undefined}
-                    className={({ isActive }) =>
-                      `flex items-center rounded-md transition-all duration-150 ${
-                        collapsed && !isMobile
-                          ? 'justify-center p-2.5'
-                          : 'gap-2.5 px-3 py-2'
-                      } text-[13px] font-medium ${
-                        isActive
-                          ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
-                          : 'text-gray-400 hover:bg-white/5 hover:text-white'
-                      }`
-                    }
-                  >
-                    <item.icon className="w-[18px] h-[18px] flex-shrink-0" />
-                    {(!collapsed || isMobile) && <span className="truncate">{item.label}</span>}
-                  </NavLink>
-                ))}
-              </div>
             </div>
           );
         })}
       </nav>
 
       {/* User */}
-      <div className="p-3 border-t border-gray-800/50">
-        <div className={`flex items-center ${collapsed && !isMobile ? 'justify-center' : 'gap-2.5'}`}>
-          <div className="w-8 h-8 rounded-full bg-blue-600/20 flex items-center justify-center flex-shrink-0">
-            <span className="text-blue-400 text-xs font-bold">{user?.name?.charAt(0).toUpperCase()}</span>
+      <div className="p-3 border-t border-white/[0.06]">
+        <div className={`flex items-center rounded-lg transition-all duration-200 hover:bg-white/[0.07] hover:backdrop-blur-sm hover:ring-1 hover:ring-white/[0.06] p-1.5 -mx-1.5 cursor-default ${collapsed && !isMobile ? 'justify-center' : 'gap-2.5'}`}>
+          <div className="w-7 h-7 rounded-full bg-sky-500/20 ring-1 ring-sky-400/30 flex items-center justify-center flex-shrink-0">
+            <span className="text-sky-400 text-[11px] font-bold">{user?.name?.charAt(0).toUpperCase()}</span>
           </div>
           {(!collapsed || isMobile) && (
             <div className="min-w-0 flex-1">
-              <div className="text-sm font-medium text-white truncate">{user?.name}</div>
-              <div className="text-[10px] text-gray-500 uppercase">{user?.role}</div>
+              <div className="text-[13px] font-medium text-white truncate leading-tight">{user?.name}</div>
+              <div className="text-[10px] text-gray-500 uppercase tracking-wide">{user?.role}</div>
             </div>
           )}
           <button
             onClick={handleLogout}
             title="Sign out"
-            className={`p-1.5 text-gray-600 hover:text-red-400 transition-colors ${collapsed && !isMobile ? 'mt-2' : ''}`}
+            className={`p-1.5 text-gray-500 hover:text-red-400 transition-all duration-200 rounded-md hover:bg-red-500/[0.12] hover:backdrop-blur-sm ${collapsed && !isMobile ? 'mt-2' : ''}`}
           >
             <LogOut className="w-4 h-4" />
           </button>
@@ -309,15 +328,12 @@ export function AppLayout() {
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Header */}
         <header className="h-14 bg-white border-b border-gray-200 flex items-center gap-3 px-4 lg:px-6 flex-shrink-0">
-          {/* Mobile menu button */}
           <button onClick={() => setMobileOpen(true)} className="lg:hidden p-1.5 text-gray-500 hover:text-gray-900 -ml-1">
             <Menu className="w-5 h-5" />
           </button>
 
-          {/* Page title */}
           <h1 className="text-sm font-semibold text-gray-900 lg:text-base">{getPageTitle()}</h1>
 
-          {/* Spacer */}
           <div className="flex-1" />
 
           {/* Search */}
@@ -335,7 +351,7 @@ export function AppLayout() {
             <button onClick={openNotifications} className="p-2 text-gray-400 hover:text-gray-600 relative">
               <Bell className="w-5 h-5" />
               {unreadCount > 0 && (
-                <span className="absolute top-0.5 right-0.5 min-w-[18px] h-[18px] bg-blue-600 rounded-full flex items-center justify-center">
+                <span className="absolute top-0.5 right-0.5 min-w-[18px] h-[18px] bg-sky-500 rounded-full flex items-center justify-center">
                   <span className="text-white text-[10px] font-bold leading-none">{unreadCount > 99 ? '99+' : unreadCount}</span>
                 </span>
               )}
@@ -345,7 +361,7 @@ export function AppLayout() {
                 <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
                   <h3 className="font-semibold text-sm text-gray-900">Notifications</h3>
                   {unreadCount > 0 && (
-                    <button onClick={markAllRead} className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1">
+                    <button onClick={markAllRead} className="text-xs text-sky-600 hover:text-sky-800 flex items-center gap-1">
                       <Check className="w-3 h-3" /> Mark all read
                     </button>
                   )}
@@ -358,8 +374,8 @@ export function AppLayout() {
                   ) : (
                     notifications.slice(0, 20).map((n) => (
                       <button key={n.id} onClick={() => markRead(n.id, n.link)}
-                        className={`w-full text-left px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors flex gap-3 ${!n.read ? 'bg-blue-50/30' : ''}`}>
-                        {!n.read && <span className="w-2 h-2 mt-1.5 bg-blue-600 rounded-full flex-shrink-0" />}
+                        className={`w-full text-left px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors flex gap-3 ${!n.read ? 'bg-sky-50/30' : ''}`}>
+                        {!n.read && <span className="w-2 h-2 mt-1.5 bg-sky-500 rounded-full flex-shrink-0" />}
                         <div className={`flex-1 min-w-0 ${n.read ? 'ml-5' : ''}`}>
                           <div className="text-sm font-medium text-gray-900 truncate">{n.title}</div>
                           {n.message && <div className="text-xs text-gray-500 mt-0.5 truncate">{n.message}</div>}
@@ -440,7 +456,7 @@ export function AppLayout() {
               <div className="p-4">
                 <div className="text-xs text-gray-400 mb-2 font-medium">QUICK NAVIGATION</div>
                 <div className="grid grid-cols-2 gap-1">
-                  {['/', '/tickets', '/chat', '/contacts', '/deals', '/error-logs'].map((path) => {
+                  {['/', '/tickets', '/chat', '/contacts', '/invoices', '/error-logs'].map((path) => {
                     const page = searchablePages.find((p) => p.path === path);
                     const matchedItem = navSections.flatMap((s) => s.items).find((i) => i.to === path);
                     const Icon = matchedItem?.icon || Search;

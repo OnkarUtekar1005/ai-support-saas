@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
 import path from 'path';
 import rateLimit from 'express-rate-limit';
 import { createServer } from 'http';
@@ -16,7 +17,11 @@ import { systemConfigRoutes } from './routes/systemConfig';
 import { projectRoutes } from './routes/projects';
 import { contactRoutes } from './routes/contacts';
 import { companyRoutes } from './routes/companies';
-import { dealRoutes } from './routes/deals';
+import { projectCostRoutes } from './routes/projectCosts';
+import { projectAttachmentRoutes } from './routes/projectAttachments';
+import { projectUpdateRoutes } from './routes/projectUpdates';
+import { invoiceRoutes } from './routes/invoices';
+import { invoiceSettingsRoutes } from './routes/invoiceSettings';
 import { activityRoutes } from './routes/activities';
 import { sdkRoutes } from './routes/sdk';
 import { apiKeyRoutes } from './routes/apiKeys';
@@ -32,13 +37,14 @@ import { documentRoutes } from './routes/documents';
 import { functionalAgentRoutes } from './routes/functionalAgent';
 import { notificationRoutes } from './routes/notifications';
 import { reminderConfigRoutes } from './routes/reminderConfig';
+import { financeRoutes } from './routes/finance';
+import { notionStorage } from './services/notion/NotionStorageService';
 import { testErrorRoutes } from './routes/testErrors';
 import { errorHandler } from './middleware/errorHandler';
 import { ErrorLogger } from './services/logging/ErrorLogger';
 import { setupSocketHandlers } from './controllers/socketController';
 import { prisma } from './utils/prisma';
 import { setupErrorStream } from './services/logging/ErrorStreamSocket';
-import { ErrorIngestionService } from './services/logging/ErrorIngestionService';
 
 const app = express();
 const httpServer = createServer(app);
@@ -68,6 +74,7 @@ app.use(cors({
   },
   credentials: true,
 }));
+app.use(cookieParser());
 app.use(express.json({ limit: '10mb' }));
 app.use(
   rateLimit({
@@ -94,12 +101,17 @@ app.use('/api/system-config', systemConfigRoutes);
 
 // CRM routes
 app.use('/api/projects', projectRoutes);
+app.use('/api/projects/:projectId/costs', projectCostRoutes);
+app.use('/api/projects/:projectId/attachments', projectAttachmentRoutes);
+app.use('/api/projects/:projectId/updates', projectUpdateRoutes);
+app.use('/api/invoices', invoiceRoutes);
+app.use('/api/invoice-settings', invoiceSettingsRoutes);
 app.use('/api/contacts', contactRoutes);
 app.use('/api/companies', companyRoutes);
-app.use('/api/deals', dealRoutes);
 app.use('/api/activities', activityRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/reminder-config', reminderConfigRoutes);
+app.use('/api/finance', financeRoutes);
 
 // SDK routes (API key auth — for external apps)
 app.use('/api/sdk', sdkRoutes);
@@ -142,13 +154,8 @@ httpServer.listen(config.port, async () => {
   console.log(`🚀 AI Support SaaS server running on port ${config.port}`);
   console.log(`   Environment: ${config.nodeEnv}`);
 
-  // Rebuild in-memory error stats from today's log files
-  try {
-    await ErrorIngestionService.getInstance().rebuildFromLogs();
-    console.log('Error ingestion service initialized (log-file based)');
-  } catch (err) {
-    console.error('Failed to rebuild error stats:', (err as Error).message);
-  }
+  // Provision Notion database schema if configured
+  await notionStorage.initialize();
 
   // Orchestrator runs as a standalone CLI: npm run orchestrator
 });
