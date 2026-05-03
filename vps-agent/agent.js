@@ -25,15 +25,98 @@ const http  = require('http');
 const fs    = require('fs');
 const path  = require('path');
 
-// ─── Configuration (set via environment or edit here) ───
+// ─── Configuration ───
+// Only AGENT_KEY and CRM_URL are required to start.
+// All project paths, build commands, etc. come from CRM → Agent Config — no per-project env vars.
 const CONFIG = {
-  CRM_URL:      process.env.CRM_URL      || 'http://localhost:3001',
-  AGENT_KEY:    process.env.AGENT_KEY    || '',
-  POLL_INTERVAL: parseInt(process.env.POLL_INTERVAL || '30000'),
-  PROJECT_PATH: process.env.PROJECT_PATH || process.cwd(),
-  // Haiku for both steps — cheap, fast, sufficient for targeted single-file fixes
+  CRM_URL:        process.env.CRM_URL        || 'http://localhost:3001',
+  AGENT_KEY:      process.env.AGENT_KEY      || '',
+  POLL_INTERVAL:  parseInt(process.env.POLL_INTERVAL || '15000'), // 15s
+  MAX_WORKERS:    parseInt(process.env.MAX_WORKERS   || '2'),     // max concurrent Claude instances per project
   ANALYSIS_MODEL: process.env.ANALYSIS_MODEL || 'claude-haiku-4-5-20251001',
   FIX_MODEL:      process.env.FIX_MODEL      || 'claude-haiku-4-5-20251001',
+};
+
+// ─── Orchestrator ───
+// One orchestrator, per-project worker pools (max MAX_WORKERS per project).
+// When a pipeline arrives:
+//   - free worker available → assigned immediately, no queue wait
+//   - both workers busy     → held in queue, assigned the moment a worker finishes
+const orchestrator = {
+  // projectId → { active: number, queue: Pipeline[] }
+  pools: {},
+  // Tracks pipeline IDs currently being processed — prevents double-pickup on re-heartbeat
+  processing: new Set(),
+  // projectId → { projectPath, buildCommand, restartCommand, gitRepoUrl }
+  projectConfigs: {},
+  agentConfig: {},
+
+  update(pendingPipelines, projectConfigs, agentConfig) {
+    if (agentConfig)    this.agentConfig = agentConfig;
+    if (projectConfigs) Object.assign(this.projectConfigs, projectConfigs);
+
+    for (const pipeline of (pendingPipelines || [])) {
+      // Skip if already running or already queued
+      if (this.processing.has(pipeline.id)) continue;
+
+      const pid  = pipeline.projectId || 'default';
+      const pool = this.pools[pid] || (this.pools[pid] = { active: 0, queue: [] });
+
+      if (pool.queue.find(p => p.id === pipeline.id)) continue;
+
+      if (pool.active < CONFIG.MAX_WORKERS) {
+        // Worker is free — assign immediately, skip the queue entirely
+        console.log(`  [Orchestrator] ✓ Assigning ${pipeline.id.slice(0,8)} → project ${pid.slice(0,8)} (worker ${pool.active + 1}/${CONFIG.MAX_WORKERS})`);
+        this._startWorker(pid, pool, pipeline);
+      } else {
+        // Both workers busy — hold in queue
+        pool.queue.push(pipeline);
+        console.log(`  [Orchestrator] ⏳ Queued  ${pipeline.id.slice(0,8)} → project ${pid.slice(0,8)} (both workers busy, queue: ${pool.queue.length})`);
+      }
+    }
+  },
+
+  _startWorker(projectId, pool, pipeline) {
+    pool.active++;
+    this.processing.add(pipeline.id);
+    const cfg = this.configFor(projectId);
+
+    processPipeline(pipeline, cfg)
+      .catch(err => console.error(`  [Orchestrator] Worker error: ${err.message}`))
+      .finally(() => {
+        pool.active--;
+        this.processing.delete(pipeline.id);
+        console.log(`  [Orchestrator] ✔ Done     ${pipeline.id.slice(0,8)} → project ${projectId.slice(0,8)} (${pool.active}/${CONFIG.MAX_WORKERS} active, ${pool.queue.length} queued)`);
+        // Immediately assign next queued pipeline if one is waiting
+        if (pool.queue.length > 0) {
+          const next = pool.queue.shift();
+          console.log(`  [Orchestrator] ✓ Assigning queued ${next.id.slice(0,8)} → project ${projectId.slice(0,8)}`);
+          this._startWorker(projectId, pool, next);
+        }
+      });
+  },
+
+  configFor(projectId) {
+    const pc = this.projectConfigs[projectId] || {};
+    const ac = this.agentConfig;
+    return {
+      projectPath:    pc.projectPath    || ac.projectPath    || process.cwd(),
+      buildCommand:   pc.buildCommand   || ac.buildCommand   || 'npm run build',
+      restartCommand: pc.restartCommand || ac.restartCommand || 'pm2 restart all',
+      gitRepoUrl:     pc.gitRepoUrl     || '',
+      testCommand:    pc.testCommand    || '',
+      gitBranch:      ac.gitBranch      || 'main',
+    };
+  },
+
+  status() {
+    const lines = [];
+    for (const [pid, pool] of Object.entries(this.pools)) {
+      if (pool.active > 0 || pool.queue.length > 0)
+        lines.push(`    project ${pid.slice(0,8)}: ${pool.active}/${CONFIG.MAX_WORKERS} workers active, ${pool.queue.length} queued`);
+    }
+    return lines.length ? lines.join('\n') : '    idle — no active projects';
+  },
 };
 
 // ─── Token budget (tune via env vars) ───
@@ -63,13 +146,11 @@ function trunc(str, maxChars) {
 }
 
 // Extract the first project-relative file:line from a Node.js stack trace.
-// e.g. "at handler (/home/app/src/routes/gallery.ts:45:12)" → { file: 'src/routes/gallery.ts', line: 45 }
-function extractFileFromStack(stack) {
-  if (!stack) return null;
-  const base = CONFIG.PROJECT_PATH.replace(/\\/g, '/').replace(/\/$/, '');
+function extractFileFromStack(stack, projectPath) {
+  if (!stack || !projectPath) return null;
+  const base = projectPath.replace(/\\/g, '/').replace(/\/$/, '');
   for (const raw of stack.split('\n')) {
     const line = raw.replace(/\\/g, '/');
-    // Matches: (absolute/path/file.ext:LINE:COL) or (absolute/path/file.ext:LINE)
     const m = line.match(/\((.+?\.(?:ts|js|py|rb|go|java|cs|php|rs)):(\d+)(?::\d+)?\)/);
     if (!m) continue;
     const abs = m[1];
@@ -81,10 +162,9 @@ function extractFileFromStack(stack) {
 }
 
 // Read BUDGET.SNIPPET_LINES lines around targetLine from a project file.
-// Marks the error line with >>>. Returns null if file unreadable.
-function readFileSnippet(relFile, targetLine) {
+function readFileSnippet(relFile, targetLine, projectPath) {
   try {
-    const abs = path.join(CONFIG.PROJECT_PATH, relFile);
+    const abs   = path.join(projectPath, relFile);
     const lines = fs.readFileSync(abs, 'utf-8').split('\n');
     const half  = Math.floor(BUDGET.SNIPPET_LINES / 2);
     const start = Math.max(0, targetLine - half - 1);
@@ -109,8 +189,9 @@ if (!CONFIG.AGENT_KEY) {
 console.log('═══════════════════════════════════════════');
 console.log('  CRM of Techview — VPS Agent');
 console.log('═══════════════════════════════════════════');
-console.log(`  CRM URL:      ${CONFIG.CRM_URL}`);
-console.log(`  Project Path: ${CONFIG.PROJECT_PATH}`);
+console.log(`  CRM URL:       ${CONFIG.CRM_URL}`);
+console.log(`  Project paths: from CRM Agent Config`);
+console.log(`  Max workers:   ${CONFIG.MAX_WORKERS} per project`);
 console.log(`  Poll Interval: ${CONFIG.POLL_INTERVAL / 1000}s`);
 console.log('═══════════════════════════════════════════\n');
 
@@ -159,7 +240,7 @@ function crmRequest(endpoint, method, body, retries = 3) {
 function runCommand(cmd, cwd) {
   try {
     const output = execSync(cmd, {
-      cwd: cwd || CONFIG.PROJECT_PATH,
+      cwd: cwd || process.cwd(),
       encoding: 'utf-8',
       timeout: 300000, // 5 min
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -307,8 +388,13 @@ function runClaudeCode(prompt, projectPath, model) {
 }
 
 // ─── Process a pipeline ───
-async function processPipeline(pipeline) {
-  const id = pipeline.id;
+async function processPipeline(pipeline, projectConfig) {
+  const id          = pipeline.id;
+  const projectPath = projectConfig?.projectPath || process.cwd();
+  const buildCmd    = projectConfig?.buildCommand   || 'npm run build';
+  const restartCmd  = projectConfig?.restartCommand || 'pm2 restart all';
+  const gitRepoUrl  = projectConfig?.gitRepoUrl     || pipeline.gitRepoUrl || '';
+
   console.log(`\n  Processing pipeline: ${id}`);
   console.log(`  Error: ${pipeline.errorMessage.substring(0, 100)}`);
 
@@ -334,14 +420,11 @@ async function processPipeline(pipeline) {
     if (pipeline.status === 'ANALYZING') {
       console.log('\n  [1/5] Analyzing...');
 
-      const fileHint = extractFileFromStack(pipeline.errorStack);
-      const snippet  = fileHint ? readFileSnippet(fileHint.file, fileHint.line) : null;
+      const fileHint = extractFileFromStack(pipeline.errorStack, projectPath);
+      const snippet  = fileHint ? readFileSnippet(fileHint.file, fileHint.line, projectPath) : null;
       const hasGemini = !!(pipeline.geminiSuggestion || pipeline.geminiAnalysis);
 
       if (snippet && fileHint) {
-        // ── Fast path: we have the exact file + code ─────────────────────────
-        // Skip a separate analysis call entirely — go straight to AWAITING_APPROVAL
-        // with a description built from what we already know.
         console.log(`  File identified: ${fileHint.file}:${fileHint.line} — skipping analysis call`);
         const summary =
           `File: ${fileHint.file} line ${fileHint.line}\n` +
@@ -355,13 +438,12 @@ async function processPipeline(pipeline) {
           claudeFixSummary: summary,
         });
       } else {
-        // ── Slow path: need Claude to locate the file ─────────────────────────
         const analysisPrompt = pipeline.claudePrompt || (hasGemini
           ? `Error in ${pipeline.errorSource || 'app'}:\nERROR: ${pipeline.errorMessage}\nGEMINI FIX: ${trunc(pipeline.geminiSuggestion || pipeline.geminiAnalysis, BUDGET.GEMINI_CHARS)}\n\nIdentify the exact file and line to change. Give a 1-sentence fix plan. Do NOT edit files.`
           : `Error in ${pipeline.errorSource || 'app'}:\nERROR: ${pipeline.errorMessage}\nSTACK:\n${trimStack(pipeline.errorStack)}\n\nFind the root cause file and line, describe the fix in 2 sentences. Do NOT edit files.`
         );
 
-        const result = await runClaudeCode(analysisPrompt, CONFIG.PROJECT_PATH, CONFIG.ANALYSIS_MODEL);
+        const result = await runClaudeCode(analysisPrompt, projectPath, CONFIG.ANALYSIS_MODEL);
         totalInputTokens  += result.inputTokens  || 0;
         totalOutputTokens += result.outputTokens || 0;
         totalCostUsd      += result.costUsd      || 0;
@@ -398,10 +480,8 @@ async function processPipeline(pipeline) {
       // Step 3: Apply the fix with Claude Code
       console.log('\n  [3/5] Applying fix with Claude Code...');
 
-      // Build the tightest possible fix prompt — include the code snippet if we have it
-      // so Claude edits the file directly without any search tool calls.
-      const fileHint = extractFileFromStack(pipeline.errorStack);
-      const snippet  = fileHint ? readFileSnippet(fileHint.file, fileHint.line) : null;
+      const fileHint = extractFileFromStack(pipeline.errorStack, projectPath);
+      const snippet  = fileHint ? readFileSnippet(fileHint.file, fileHint.line, projectPath) : null;
 
       let fixPrompt;
       if (snippet && fileHint) {
@@ -427,7 +507,7 @@ async function processPipeline(pipeline) {
 
       await crmRequest('/report', 'POST', { pipelineId: id, stage: 'FIXING' });
 
-      const fixResult = await runClaudeCode(fixPrompt, CONFIG.PROJECT_PATH, CONFIG.FIX_MODEL);
+      const fixResult = await runClaudeCode(fixPrompt, projectPath, CONFIG.FIX_MODEL);
       totalInputTokens  += fixResult.inputTokens  || 0;
       totalOutputTokens += fixResult.outputTokens || 0;
       totalCostUsd      += fixResult.costUsd      || 0;
@@ -457,7 +537,7 @@ async function processPipeline(pipeline) {
       var gitRepoUrl = pipeline.gitRepoUrl || '';
 
       // Always detect which files Claude changed (for reporting)
-      var diffResult = runCommand('git diff --name-only');
+      var diffResult = runCommand('git diff --name-only', projectPath);
       filesChanged = (diffResult.output || '').split('\n').filter(Boolean);
       console.log('  Files changed by Claude: ' + (filesChanged.length > 0 ? filesChanged.join(', ') : 'none'));
 
@@ -501,10 +581,10 @@ async function processPipeline(pipeline) {
 
       // Try build and restart (skip if commands don't exist)
       var deployLog = [];
-      var buildResult = runCommand(pipeline.buildCommand || 'npm run build');
+      var buildResult = runCommand(buildCmd, projectPath);
       deployLog.push('BUILD: ' + (buildResult.success ? 'OK' : 'skipped'));
 
-      var restartResult = runCommand(pipeline.restartCommand || 'pm2 restart all');
+      var restartResult = runCommand(restartCmd, projectPath);
       deployLog.push('RESTART: ' + (restartResult.success ? 'OK' : 'skipped'));
 
       console.log(`\n  ── Total cost for this pipeline ──`);
@@ -537,13 +617,14 @@ async function processPipeline(pipeline) {
 async function poll() {
   try {
     const response = await crmRequest('/heartbeat', 'POST', {});
+    const { pendingPipelines = [], projectConfigs = {}, agentConfig = {} } = response;
 
-    if (response.pendingPipelines && response.pendingPipelines.length > 0) {
-      console.log(`  ${response.pendingPipelines.length} pending pipeline(s) found`);
+    // Hand everything to the orchestrator — it queues by project and caps workers
+    orchestrator.update(pendingPipelines, projectConfigs, agentConfig);
 
-      for (const pipeline of response.pendingPipelines) {
-        await processPipeline(pipeline);
-      }
+    if (pendingPipelines.length > 0) {
+      console.log(`  Heartbeat: ${pendingPipelines.length} pipeline(s) received`);
+      console.log(orchestrator.status());
     }
   } catch (err) {
     console.error(`  Heartbeat failed: ${err.message}`);

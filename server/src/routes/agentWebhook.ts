@@ -44,10 +44,32 @@ agentWebhookRoutes.post('/heartbeat', async (req: Request, res: Response) => {
       status: { in: ['ANALYZING', 'APPROVED'] },
     },
     orderBy: { createdAt: 'asc' },
-    take: 5,
+    take: 20, // orchestrator queues these itself
   });
 
-  res.json({ ok: true, pendingPipelines: pending });
+  // Per-project configs so the orchestrator knows where each project lives
+  const projectIds = [...new Set(pending.map((p) => p.projectId).filter(Boolean))] as string[];
+  const autoFixConfigs = projectIds.length > 0
+    ? await prisma.autoFixConfig.findMany({
+        where: { projectId: { in: projectIds } },
+        select: { projectId: true, projectPath: true, buildCommand: true, restartCommand: true, gitRepoUrl: true, testCommand: true },
+      })
+    : [];
+
+  const projectConfigs = Object.fromEntries(autoFixConfigs.map((c) => [c.projectId, c]));
+
+  res.json({
+    ok: true,
+    pendingPipelines: pending,
+    projectConfigs, // { projectId: { projectPath, buildCommand, ... } }
+    // Fallback config from the agent record itself
+    agentConfig: {
+      projectPath:    agent.projectPath,
+      buildCommand:   agent.buildCommand,
+      restartCommand: agent.restartCommand,
+      gitBranch:      agent.gitBranch,
+    },
+  });
 });
 
 // Agent reports Claude Code output
