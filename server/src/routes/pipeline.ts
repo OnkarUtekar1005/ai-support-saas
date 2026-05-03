@@ -43,14 +43,32 @@ pipelineRoutes.get('/:id', async (req: AuthRequest, res: Response) => {
 // Works with both DB error logs (errorLogId) and in-memory errors (fingerprint)
 pipelineRoutes.post('/trigger', async (req: AuthRequest, res: Response) => {
   try {
-    const { errorLogId, fingerprint, errorMessage, errorStack, errorSource, projectId, geminiAnalysis, geminiSuggestion } = req.body;
+    const { errorLogId, fingerprint, errorMessage, errorStack, errorSource, projectId, geminiAnalysis, geminiSuggestion, ticketId, description } = req.body;
 
     let message = errorMessage || '';
-    let stack = errorStack || null;
+    let stack = errorStack || description || null; // ticket description may contain stack trace
     let source = errorSource || 'unknown';
     let pId = projectId || null;
     let analysis = geminiAnalysis || null;
     let suggestion = geminiSuggestion || null;
+    let tId = ticketId || null;
+
+    // If triggered from a ticket, validate it is TECHNICAL before proceeding
+    if (tId) {
+      const ticket = await prisma.ticket.findFirst({
+        where: { id: tId, organizationId: req.user!.organizationId },
+      });
+      if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+      if (ticket.issueCategory !== 'TECHNICAL') {
+        return res.status(400).json({ error: 'Only TECHNICAL tickets can be sent to the auto-fix agent' });
+      }
+      if (!message) {
+        message = ticket.title;
+        stack   = ticket.description;
+        source  = 'support-ticket';
+        pId     = pId || ticket.projectId;
+      }
+    }
 
     // If errorLogId provided, try to read from DB (legacy path)
     if (errorLogId) {
@@ -99,6 +117,7 @@ pipelineRoutes.post('/trigger', async (req: AuthRequest, res: Response) => {
         geminiAnalysis: analysis,
         geminiSuggestion: suggestion,
         projectId: pId,
+        ticketId: tId,
         organizationId: req.user!.organizationId,
         status: 'DETECTED',
         autoTriggered: false,

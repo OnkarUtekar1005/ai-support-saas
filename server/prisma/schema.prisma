@@ -132,6 +132,7 @@ model Ticket {
   contact      Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
   chatSessions ChatSession[]
   attachments  Attachment[]
+  pipelines    Pipeline[]
 
   @@index([assigneeId])
 }
@@ -849,6 +850,7 @@ model Pipeline {
   // Links
   vpsAgentId       String?
   projectId        String?
+  ticketId         String?        // support ticket that triggered this fix
   organizationId   String
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
@@ -856,6 +858,7 @@ model Pipeline {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   project      Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
   vpsAgent     VpsAgent?    @relation(fields: [vpsAgentId], references: [id], onDelete: SetNull)
+  ticket       Ticket?      @relation(fields: [ticketId], references: [id], onDelete: SetNull)
   logs         PipelineLog[]
 
   @@index([organizationId])

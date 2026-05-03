@@ -115,14 +115,25 @@ agentWebhookRoutes.post('/report', async (req: Request, res: Response) => {
 
   await prisma.pipeline.update({ where: { id: pipelineId }, data });
 
-  // Remove the source error log once the fix is deployed (resolved)
+  // On deploy: remove the source error log and resolve the linked ticket
   if (stage === 'DEPLOYED') {
     const pipe = await prisma.pipeline.findUnique({
       where: { id: pipelineId },
-      select: { errorLogId: true },
+      select: { errorLogId: true, ticketId: true, claudeFixSummary: true },
     });
+
     if (pipe?.errorLogId) {
       await prisma.errorLog.deleteMany({ where: { id: pipe.errorLogId } });
+    }
+
+    if (pipe?.ticketId) {
+      await prisma.ticket.update({
+        where: { id: pipe.ticketId },
+        data: {
+          status: 'RESOLVED',
+          resolution: `Auto-fixed by Claude Code agent.\n\n${pipe.claudeFixSummary || claudeFixSummary || ''}`.trim(),
+        },
+      });
     }
   }
 
